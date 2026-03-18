@@ -1,0 +1,17 @@
+Session: 2026-03-18 — "Emacs all the way down"
+
+Timeline:
+- Started with Unicode verification: format/concat round-trips through both MCP servers
+- Emoji round-trip: replace-regexp-in-string with 😊 confirmed C-004
+- Identified C-001 measurement gap: no request-level logging in server.py
+- Drafted C-007 hypothesis: CC v2.1.78 two-tier indexing vs mcp.el eager interning
+- User proposed C-008: eliminate Python entirely, pure Elisp MCP server
+- Prototype built: emcp-stdio.el, 779 local + 9 daemon tools
+- Key gotcha: json-serialize returns unibyte UTF-8 in batch mode
+- Key gotcha: emacsclient TCP diagnostic lines in stdout (same as dispatch.py)
+- Daemon data layer: emcp-data-eval as raw escape hatch, org-headings/table/capture
+- Three parallel agents: README rewrite, C-008 registration, manual references
+
+Architecture decision: batch Emacs handles MCP protocol, running daemon holds
+stateful data (buffers, org files). call-process bridges them. No Python in the
+critical path.
