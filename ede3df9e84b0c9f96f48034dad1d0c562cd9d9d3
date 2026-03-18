@@ -1,0 +1,9 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: L4-dispatch
+X-Conjectures: C-003 confirmed (<50ms), C-004 confirmed (non-ASCII intact)
+X-Testing: 6/6 live tests pass, 7/7 mocked tests pass
+X-Invariants: emacsclient is sole IPC boundary
+X-Deviations: none
