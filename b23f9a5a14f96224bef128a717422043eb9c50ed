@@ -1,0 +1,7 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: build-step-3
+X-Testing: pytest tests/test_dispatch.py — 7/7 pass (mocked)
+X-Invariants: dispatch.py has no function awareness, no manifest knowledge
+X-Deviations: none
