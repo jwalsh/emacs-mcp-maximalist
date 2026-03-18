@@ -1,6 +1,7 @@
 # Build artifacts (not committed per CLAUDE.md)
 emacs-functions.json
 functions-compact.jsonl
+functions-core.jsonl
 
 # Sentinel files (local pipeline state)
 .sentinels/

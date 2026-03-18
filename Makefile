@@ -5,7 +5,8 @@ SENTINEL     := .sentinels
 CLAUDE       := claude --dangerously-skip-permissions -p
 EMACSCLIENT  := emacsclient
 PYTHONPATH   := src
-MANIFEST     := functions-compact.jsonl
+MANIFEST      := functions-compact.jsonl
+MANIFEST_CORE := functions-core.jsonl
 MANIFEST_FULL := emacs-functions.json
 
 # Parallelism: phases 5-6, 7, 8 are independent.
@@ -101,8 +102,13 @@ $(MANIFEST): src/introspect.el
 	$(EMACSCLIENT) --eval '(load-file "src/introspect.el")'
 	$(EMACSCLIENT) --eval '(emcp-write-manifest-compact "$(MANIFEST)")'
 
-manifest: $(MANIFEST)
-	@echo "Manifest: $$(wc -l < $(MANIFEST)) functions"
+$(MANIFEST_CORE): src/introspect.el
+	$(EMACSCLIENT) --eval '(load-file "src/introspect.el")'
+	$(EMACSCLIENT) --eval '(emcp-write-manifest-core "$(MANIFEST_CORE)")'
+
+manifest: $(MANIFEST) $(MANIFEST_CORE)
+	@echo "Manifest (max): $$(wc -l < $(MANIFEST)) functions"
+	@echo "Manifest (core): $$(wc -l < $(MANIFEST_CORE)) functions"
 
 # --- test -----------------------------------------------------------------
 
@@ -116,8 +122,8 @@ test-%:
 
 run: run-core
 
-run-core: $(MANIFEST)
-	PYTHONPATH=$(PYTHONPATH) uv run python src/server.py $(MANIFEST)
+run-core: $(MANIFEST_CORE)
+	PYTHONPATH=$(PYTHONPATH) uv run python src/server.py $(MANIFEST_CORE)
 
 run-max: $(MANIFEST)
 	PYTHONPATH=$(PYTHONPATH) uv run python src/server.py $(MANIFEST)
@@ -218,6 +224,6 @@ clean:
 	rm -rf $(SENTINEL)
 
 clean-build:
-	rm -f $(MANIFEST) $(MANIFEST_FULL)
+	rm -f $(MANIFEST) $(MANIFEST_CORE) $(MANIFEST_FULL)
 
 clean-all: clean clean-build
