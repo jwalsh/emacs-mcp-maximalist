@@ -68,9 +68,25 @@ gmake test
 gmake health
 #+end_src
 
-* MCP Client Configuration
+* Usage
 
-Add to your MCP client config (e.g. =.mcp.json= or Claude Desktop):
+** Claude Code (=.mcp.json=)
+
+#+begin_src json
+{
+  "mcpServers": {
+    "emacs-core": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/emacs-mcp-maximalist",
+               "python", "src/server.py", "functions-core.jsonl"],
+      "env": { "PYTHONPATH": "src" }
+    }
+  }
+}
+#+end_src
+
+** Claude Desktop (=claude_desktop_config.json=)
 
 #+begin_src json
 {
@@ -89,6 +105,31 @@ Add to your MCP client config (e.g. =.mcp.json= or Claude Desktop):
     }
   }
 }
+#+end_src
+
+** Emacs with mcp.el
+
+#+begin_src emacs-lisp
+(mcp-connect-server
+ "emacs-core" "uv"
+ '("run" "--directory" "/path/to/emacs-mcp-maximalist"
+   "python" "src/server.py" "functions-core.jsonl")
+ :initial-callback (lambda (conn) (message "emacs-mcp connected"))
+ :tools-callback (lambda (conn tools) (message "%d tools" (length tools))))
+#+end_src
+
+** MCP Inspector
+
+#+begin_src bash
+npx @anthropic-ai/mcp-inspector uv run --directory /path/to/emacs-mcp-maximalist \
+  python src/server.py functions-core.jsonl
+#+end_src
+
+** JSON-RPC (raw)
+
+#+begin_src bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+  PYTHONPATH=src uv run python src/server.py functions-core.jsonl
 #+end_src
 
 * Architecture
@@ -119,7 +160,7 @@ result → MCP content block
 
 The escaper (=src/escape.py=) is the security surface. It handles
 backslash escaping, quote escaping, null byte rejection, and shell
-metacharacter safety. It is tested independently of the server (23 tests).
+metacharacter safety. It is tested independently of the server.
 
 ** Manifest Format Invariant
 
@@ -138,7 +179,7 @@ gmake status        # show pipeline + artifact status
 gmake graph         # show dependency DAG
 gmake work          # run full pipeline (bootstrap → implement)
 gmake -j3 parallel  # run independent phases concurrently
-gmake test          # run all tests (42 cases)
+gmake test          # run all tests (53 cases)
 gmake manifest      # generate both manifests from emacs daemon
 gmake run-core      # start MCP server (core mode)
 gmake run-max       # start MCP server (maximalist mode)
