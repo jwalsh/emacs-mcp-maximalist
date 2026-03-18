@@ -148,8 +148,14 @@ init-bd:
 init-cprr:
 	@cprr init 2>/dev/null || echo "cprr already initialized"
 
-init-tools: init-bd init-cprr
-	@echo "toolchain initialized (bd, cprr)"
+init-sb:
+	@sb init 2>/dev/null || echo "sb already initialized"
+
+init-aq:
+	@aq init 2>/dev/null || echo "aq already initialized"
+
+init-tools: init-bd init-cprr init-sb init-aq
+	@echo "toolchain initialized (bd, cprr, sb, aq)"
 
 # =========================================================================
 #  CONVENIENCE / META
@@ -168,7 +174,7 @@ work:              $(SENTINEL)/work
 .PHONY: bootstrap generate-claude-md review-prompt wire-backlog \
         setup-memory health-check verify-bootstrap decompose work \
         clean status graph parallel note test health run run-core run-max \
-        manifest sync init-bd init-cprr init-tools resume
+        manifest sync init-bd init-cprr init-sb init-aq init-tools resume
 
 parallel:
 	@$(MAKE) -j3 wire-backlog setup-memory health-check
