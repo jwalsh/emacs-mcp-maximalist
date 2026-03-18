@@ -4,9 +4,12 @@
       "id": 1,
       "title": "Claude Code uses on-demand tool indexing",
       "hypothesis": "Large manifest produces measurable token overhead at tool-call time if false",
-      "status": "open",
+      "evidence": [
+        "Original session (2026-02-04) + current: 4324 tools loaded without context overflow"
+      ],
+      "status": "confirmed",
       "created_at": "2026-03-17T21:11:41.225583-04:00",
-      "updated_at": "2026-03-17T21:11:41.225583-04:00"
+      "updated_at": "2026-03-17T22:32:44.753548-04:00"
     },
     {
       "id": 2,
@@ -20,28 +23,45 @@
       "id": 3,
       "title": "emacsclient round-trip \u003c50ms for pure string functions",
       "hypothesis": "Measured latency exceeds 50ms making tool calls user-visible",
-      "status": "open",
+      "evidence": [
+        "Live dispatch tests: median \u003c5ms for string-trim, well under 50ms"
+      ],
+      "status": "confirmed",
       "created_at": "2026-03-17T21:11:41.236283-04:00",
-      "updated_at": "2026-03-17T21:11:41.236283-04:00"
+      "updated_at": "2026-03-17T22:32:44.758649-04:00"
     },
     {
       "id": 4,
       "title": "Non-ASCII survives escape-emacsclient-emacs-stdout round trip",
       "hypothesis": "CJK, emoji, or combining characters are corrupted in output",
-      "status": "open",
+      "evidence": [
+        "Live tests: CJK, emoji, combining chars survive round trip"
+      ],
+      "status": "confirmed",
       "created_at": "2026-03-17T21:11:41.240403-04:00",
-      "updated_at": "2026-03-17T21:11:41.240403-04:00"
+      "updated_at": "2026-03-17T22:32:44.763052-04:00"
     },
     {
       "id": 5,
       "title": "Maximalist manifest causes measurable latency difference at init",
       "hypothesis": "No statistically significant difference between core and maximalist init time",
-      "status": "open",
+      "evidence": [
+        "EMCP_TRACE=1: measurable parse time delta core(69) vs max(4324)"
+      ],
+      "status": "confirmed",
       "created_at": "2026-03-17T21:11:41.244439-04:00",
-      "updated_at": "2026-03-17T21:11:41.24444-04:00"
+      "updated_at": "2026-03-17T22:32:44.768053-04:00"
+    },
+    {
+      "id": 6,
+      "title": "Vanilla Emacs (--no-init-file) produces \u003e= 200 text-consuming functions",
+      "hypothesis": "The obarray without packages has fewer than 200 text-arg functions, making core mode trivially small",
+      "status": "open",
+      "created_at": "2026-03-17T22:38:04.073481-04:00",
+      "updated_at": "2026-03-17T22:38:04.073481-04:00"
     }
   ],
-  "next_id": 6,
+  "next_id": 7,
   "config": {
     "local": true
   }

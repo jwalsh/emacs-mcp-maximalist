@@ -135,8 +135,8 @@ health:
 
 # --- docs -----------------------------------------------------------------
 
-README.md: README.org
-	$(EMACSCLIENT) --eval '(progn (find-file "README.org") (org-export-to-file (quote md) "README.md") (kill-buffer))'
+README.md: README.org lisp/publish.el
+	$(EMACSCLIENT) -l lisp/publish.el --eval '(emcp-publish-readme)'
 
 sync: README.md
 
