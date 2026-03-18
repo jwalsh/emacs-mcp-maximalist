@@ -1,0 +1,15 @@
+# Build artifacts (not committed per CLAUDE.md)
+emacs-functions.json
+functions-compact.jsonl
+
+# Sentinel files (local pipeline state)
+.sentinels/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Environment
+.env
