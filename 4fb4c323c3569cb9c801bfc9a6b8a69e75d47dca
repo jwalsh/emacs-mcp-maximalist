@@ -1,0 +1,9 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: mise-en-place
+X-Conjectures: C-001 confirmed, C-003 confirmed, C-004 confirmed, C-005 confirmed, C-006 added
+X-Testing: cprr list shows 4 confirmed + 2 open; 53/53 pytest pass
+X-Invariants: publish.el loads via emacsclient -l, no init.el dependency
+X-Deviations: bd disappeared from PATH, used gh issues instead of beads

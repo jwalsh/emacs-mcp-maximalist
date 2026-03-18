@@ -1,0 +1,7 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: build-step-4-5
+X-Testing: pytest tests/test_server.py — 12/12 pass
+X-Invariants: manifest-format-invariant — server loads JSONL, not JSON; no filtering
+X-Deviations: spec had json.load; fixed to line-by-line JSONL; async pattern updated for mcp API

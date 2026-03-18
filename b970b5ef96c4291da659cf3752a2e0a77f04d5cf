@@ -1,0 +1,7 @@
+X-Agent-Role: bootstrap
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: skills
+X-Testing: sentinel logic reviewed, not runtime-tested yet
+X-Invariants: each skill checks preconditions before mutating state
+X-Deviations: none

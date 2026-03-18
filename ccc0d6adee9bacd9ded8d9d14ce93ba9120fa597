@@ -1,0 +1,8 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: L6-health-check
+X-Testing: health-check exits 0, all 6 checks true
+X-Invariants: health-check does not read function names (per CLAUDE.md)
+X-Deviations: none

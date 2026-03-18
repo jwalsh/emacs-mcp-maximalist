@@ -1,0 +1,8 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: docs
+X-Testing: n/a
+X-Invariants: usage sections follow patterns from mcp-server-qrcode and mcp.el repos
+X-Deviations: none

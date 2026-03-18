@@ -1,0 +1,7 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: build-step-2
+X-Testing: not runtime-tested (requires live emacs daemon)
+X-Invariants: manifest-format-invariant — produces both JSON and JSONL formats
+X-Deviations: added emcp-write-manifest-compact (not in original spec.org)

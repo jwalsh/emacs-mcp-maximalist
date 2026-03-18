@@ -1,0 +1,9 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: L5-server
+X-Conjectures: C-005 instrumented
+X-Testing: core=69 tools (>=20), max=4324 tools (>1000), string-trim->hello, 5/5 live pass
+X-Invariants: manifest format invariant preserved (JSONL compact keys)
+X-Deviations: none

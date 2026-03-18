@@ -1,0 +1,9 @@
+X-Agent-Role: bootstrap
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: toolchain-init
+X-Conjectures: C-001, C-002, C-003, C-004, C-005
+X-Testing: cprr list — 5/5 open; bd init — sqlite backend
+X-Invariants: conjectures match CLAUDE.md and spec.org
+X-Deviations: aq and sb not available on this machine, skipped

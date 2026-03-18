@@ -1,0 +1,8 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: pipeline-update
+X-Testing: gmake test — 42/42 pass; gmake --dry-run run-core resolves
+X-Invariants: co-author in notes not trailers; manifest-format-invariant
+X-Deviations: co-author moved from commit trailer to git note per user feedback

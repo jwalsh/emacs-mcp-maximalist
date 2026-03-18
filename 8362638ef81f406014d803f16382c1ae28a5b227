@@ -1,0 +1,9 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: L1-introspect
+X-Conjectures: C-002
+X-Testing: emcp-write-manifest returns 4324, emcp-write-manifest-core returns 69
+X-Invariants: introspection locality preserved, no hardcoded function names
+X-Deviations: none

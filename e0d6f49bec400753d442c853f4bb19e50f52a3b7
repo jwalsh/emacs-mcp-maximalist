@@ -1,0 +1,7 @@
+X-Agent-Role: bootstrap
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: scaffold
+X-Testing: n/a (spec only)
+X-Invariants: spec.org is source of truth, CLAUDE.md is derived lens
+X-Deviations: none

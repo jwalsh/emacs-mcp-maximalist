@@ -1,0 +1,7 @@
+X-Agent-Role: reviewer
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: review-prompt
+X-Testing: build order step 2→4 format chain verified
+X-Invariants: manifest-format-invariant added (JSON vs JSONL producer/consumer table)
+X-Deviations: spec.org says emcp-write-manifest produces JSON; added emcp-write-manifest-compact for JSONL

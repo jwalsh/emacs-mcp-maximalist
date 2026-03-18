@@ -1,0 +1,7 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: build-step-1
+X-Testing: pytest tests/test_escape.py — 23/23 pass
+X-Invariants: escape.py is pure function, no I/O, independently tested
+X-Deviations: none

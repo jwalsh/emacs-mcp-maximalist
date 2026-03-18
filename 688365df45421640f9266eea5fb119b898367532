@@ -1,0 +1,7 @@
+X-Agent-Role: bootstrap
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: generate-claude-md
+X-Testing: kernel checks — axiom line 8, confirmation gate, failure handler, instrumentation section
+X-Invariants: fixed-point kernel (4 constraints present)
+X-Deviations: none
