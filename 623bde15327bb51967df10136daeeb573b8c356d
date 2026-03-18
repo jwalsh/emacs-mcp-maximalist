@@ -1,0 +1,8 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Co-Author: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+X-Phase: docs
+X-Testing: n/a
+X-Invariants: session log captures all corrections and deviations
+X-Deviations: none
