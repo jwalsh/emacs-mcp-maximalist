@@ -1,0 +1,588 @@
+#+title: emacs-mcp-maximalist — Specification
+#+subtitle: Every Text-Consuming Function in Emacs, as an MCP Tool
+#+author: aygp-dr
+#+date: 2026-03-17
+#+property: header-args :mkdirp t
+#+property: header-args:emacs-lisp :lexical t
+#+property: header-args:mermaid :file docs/diagrams/:exports results
+#+options: toc:3 num:t
+
+* Purpose and Scope
+
+Expose the full Emacs =obarray= — all text-consuming functions — as a
+running MCP server. The primary purpose is twofold and deliberately
+in tension:
+
+1. *Practical*: give agentic runtimes access to Emacs as a
+   general-purpose text transformation engine via a well-defined
+   protocol boundary.
+
+2. *Critical*: demonstrate, by construction, that naive "enumerate all
+   tools" MCP server design immediately saturates any agent context
+   window — making the artifact both useful and a reductio ad absurdum.
+
+The system is not a demo. It must actually run. The critique only
+works if the thing works.
+
+* Anti-Goals
+
+Do not build any of the following:
+
+- A curated, hand-picked subset of "useful" Emacs functions. Curation
+  is the point being argued against. (c.f. emacs-mcp-curated, which
+  is a different project.)
+- A general Emacs IDE integration (c.f. emacs-lsp, eglot, copilot.el).
+- An AI assistant embedded inside Emacs (c.f. gptel, ellama).
+- A wrapper that requires modifying loaded Emacs config. The introspector
+  must work against a vanilla daemon.
+- A Python-first project. Emacs Lisp owns the introspection and dispatch.
+  Python is the protocol shim only.
+
+* Foundational Axiom
+
+#+begin_quote
+The MCP server does not know what Emacs can do. Emacs tells it.
+#+end_quote
+
+All tool definitions are derived at runtime from a live Emacs daemon
+via obarray introspection. No function list is hardcoded. If you are
+hardcoding function names anywhere except tests, you have violated
+the axiom.
+
+* Architecture
+
+** Data Flow
+
+#+begin_src mermaid :file docs/diagrams/dataflow.png
+graph LR
+    subgraph emacs["Emacs Daemon"]
+        OB[obarray]
+        IL[introspect.el]
+        EC[emacsclient]
+        OB --> IL
+    end
+
+    subgraph artifacts["Build Artifacts"]
+        MF[emacs-functions.json]
+        IL -->|tangle + eval| MF
+    end
+
+    subgraph server["MCP Server (Python)"]
+        LD[manifest loader]
+        TR[tool registry]
+        DP[emacsclient dispatcher]
+        MF --> LD --> TR
+        TR --> DP
+    end
+
+    subgraph agent["Agent Runtime"]
+        CC[Claude Code / client]
+        CC -->|tools/list| TR
+        CC -->|tools/call| DP
+        DP -->|emacsclient --eval| EC
+        EC -->|result| DP
+        DP -->|content| CC
+    end
+#+end_src
+
+** Security Boundary
+
+#+begin_src mermaid :file docs/diagrams/security.png
+graph TD
+    IN[Agent tool call JSON]
+    VAL[Python: validate against JSON schema]
+    ESC[Python: escape_for_elisp]
+    SEXP[S-expression string]
+    EVAL[emacsclient --eval]
+    RES[string result]
+    OUT[MCP content block]
+
+    IN --> VAL
+    VAL -->|schema error| ERR1[reject: malformed]
+    VAL --> ESC
+    ESC -->|injection attempt| ERR2[reject: unsafe]
+    ESC --> SEXP
+    SEXP --> EVAL
+    EVAL -->|emacs error| ERR3[mcp error content]
+    EVAL --> RES
+    RES --> OUT
+#+end_src
+
+The escaper is the security surface. It must handle: unbalanced parens,
+embedded quotes, null bytes, and shell metacharacters. It is tested
+independently of the server.
+
+** Runtime Modes
+
+Two modes; one codebase:
+
+| Mode | Transport | Tool count | Use case |
+|------+----------+------------+----------|
+| =core= | stdio | ~50 | Practical daily use |
+| =maximalist= | stdio | ~3600+ | The demonstration |
+
+The mode is selected by which manifest is loaded, not by separate
+server code.
+
+* Components
+
+** L0: Emacs Daemon (prerequisite, not built here)
+
+A running =emacs --daemon= accessible via =emacsclient=.
+The system degrades gracefully if absent (health-check catches it).
+
+** L1: Introspector (=src/introspect.el=)
+
+Walks =obarray=. For each symbol:
+
+1. Is it =fboundp=?
+2. Does its arglist contain text-like parameters (string, buffer,
+   region, object)?
+3. Does its docstring exist and not indicate it is internal (prefix
+   =emacs-internal= or suffix =--=)?
+
+Produces a flat list of =(:name :docstring :arglist :category)= plists,
+serialized to JSON via =json-encode=.
+
+Categories derived from symbol naming conventions:
+- =string-*= → string manipulation
+- =buffer-*=, =with-current-buffer= family → buffer ops
+- =file-*=, =find-file= family → file ops
+- =org-*= → org-mode (gated on =org= being loaded)
+- =regexp-*=, =replace-*= → regex
+- fallback → misc
+
+#+begin_src emacs-lisp :tangle src/introspect.el :noweb yes
+;;; introspect.el --- Walk obarray and emit MCP tool manifest -*- lexical-binding: t -*-
+;;
+;; Usage:
+;;   emacsclient --eval "(load-file \"src/introspect.el\")"
+;;   emacsclient --eval "(emcp-write-manifest \"emacs-functions.json\")"
+
+(require 'cl-lib)
+(require 'json)
+
+<<category-classifier>>
+
+<<text-arg-predicate>>
+
+<<docstring-extractor>>
+
+<<manifest-builder>>
+
+<<manifest-writer>>
+#+end_src
+
+#+name: category-classifier
+#+begin_src emacs-lisp :tangle no
+(defun emcp--classify (sym)
+  "Return category string for SYM based on naming convention."
+  (let ((name (symbol-name sym)))
+    (cond
+     ((string-prefix-p "string-"   name) "string")
+     ((string-prefix-p "buffer-"   name) "buffer")
+     ((string-prefix-p "file-"     name) "file")
+     ((string-prefix-p "org-"      name) "org")
+     ((string-prefix-p "replace-"  name) "regexp")
+     ((string-prefix-p "regexp-"   name) "regexp")
+     ((string-prefix-p "format"    name) "format")
+     (t                                  "misc"))))
+#+end_src
+
+#+name: text-arg-predicate
+#+begin_src emacs-lisp :tangle no
+(defun emcp--text-arg-p (sym)
+  "Return non-nil if SYM's arglist suggests text consumption."
+  (when (fboundp sym)
+    (let* ((arglist (help-function-arglist sym t))
+           (arg-names (mapcar (lambda (a)
+                                (downcase (symbol-name a)))
+                              (cl-remove-if (lambda (a)
+                                              (memq a '(&optional &rest &key)))
+                                            arglist))))
+      (cl-some (lambda (n)
+                 (string-match-p
+                  "\\(string\\|str\\|text\\|buffer\\|object\\|obj\\|seq\\|sequence\\)"
+                  n))
+               arg-names))))
+#+end_src
+
+#+name: docstring-extractor
+#+begin_src emacs-lisp :tangle no
+(defun emcp--safe-docstring (sym)
+  "Return first line of SYM's docstring, or nil."
+  (when-let* ((doc (ignore-errors (documentation sym t))))
+    (car (split-string doc "\n"))))
+#+end_src
+
+#+name: manifest-builder
+#+begin_src emacs-lisp :tangle no
+(defun emcp-build-manifest ()
+  "Return manifest as a list of alists suitable for json-encode."
+  (let (results)
+    (mapatoms
+     (lambda (sym)
+       (when (and (fboundp sym)
+                  (not (string-match-p "--" (symbol-name sym)))
+                  (emcp--text-arg-p sym))
+         (let ((doc (emcp--safe-docstring sym)))
+           (when doc
+             (push `((name     . ,(symbol-name sym))
+                     (docstring . ,doc)
+                     (arglist  . ,(format "%S"
+                                   (help-function-arglist sym t)))
+                     (category . ,(emcp--classify sym)))
+                   results)))))
+     obarray)
+    (nreverse results)))
+#+end_src
+
+#+name: manifest-writer
+#+begin_src emacs-lisp :tangle no
+(defun emcp-write-manifest (path)
+  "Write manifest JSON to PATH. Returns count of functions written."
+  (let* ((manifest (emcp-build-manifest))
+         (count    (length manifest))
+         (payload  `((functions  . ,(vconcat manifest))
+                     (statistics . ((total      . ,count)
+                                    (generated  . ,(format-time-string "%Y-%m-%dT%T%z")))))))
+    (with-temp-file path
+      (insert (json-encode payload)))
+    (message "emcp: wrote %d functions to %s" count path)
+    count))
+#+end_src
+
+** L2: Manifest (=functions-compact.jsonl=)
+
+Build artifact, not committed. Generated by =make manifest=.
+
+The observed artifact (gist:aygp-dr/cc7f50fece2107f8c5b566d1f9cf38ad, created
+2026-02-04T00:10) used compact JSONL format — one JSON object per line,
+with abbreviated keys to reduce token cost when fed to agents:
+
+| Key | Meaning         | Example value                                     |
+|-----+-----------------+---------------------------------------------------|
+| =n= | function name   | ="string-trim"=                                   |
+| =s= | arglist/sig     | ="string,trim-chars"=                             |
+| =d= | docstring (60c) | ="Trim STRING of leading and trailing whitespace."= |
+
+#+begin_src json :tangle docs/manifest-schema.json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "One record per line (JSONL). Compact keys.",
+  "type": "object",
+  "required": ["n", "d"],
+  "properties": {
+    "n": { "type": "string", "description": "Function name (symbol)" },
+    "s": { "type": "string", "description": "Arglist, comma-separated. Empty string if none." },
+    "d": { "type": "string", "description": "First ~60 chars of docstring." }
+  }
+}
+#+end_src
+
+Note: the observed artifact omits =category=. Category classification
+was designed for the introspector but may not have been emitted in the
+compact format. The rebuild can choose either format; compact JSONL is
+preferable for the maximalist mode given token cost.
+
+** L3: Escaper (=src/escape.py=)
+
+Pure function. No I/O. Independently tested.
+
+Contract: given any Python string, return a string safe to embed as
+an Elisp string literal inside a =emacsclient --eval= call.
+
+Must handle:
+- Backslash: =\= → =\\=
+- Double quote: ="= → =\"=
+- Null byte: reject with =ValueError=
+- Newline: =\n= → =\\n=
+- Non-ASCII: pass through (Emacs handles UTF-8)
+
+#+begin_src python :tangle src/escape.py
+"""escape.py — safe Elisp string literal builder.
+
+This module has no dependencies and no side effects.
+"""
+
+
+def escape_for_elisp(value: str) -> str:
+    """Return VALUE escaped for embedding in an Elisp string literal.
+
+    The output is suitable for: (function-name \\"<output>\\")
+    where the outer double-quotes are supplied by the caller.
+
+    Raises ValueError on null bytes (unrepresentable in Elisp strings).
+    """
+    if "\x00" in value:
+        raise ValueError("null byte in string: not representable in Elisp")
+    return (
+        value
+        .replace("\\", "\\\\")
+        .replace('"',  '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+
+
+def build_call(fn_name: str, *args: str) -> str:
+    """Build an Elisp function call string for emacsclient --eval.
+
+    Each arg is escaped and wrapped in double quotes.
+    fn_name is not escaped — callers must supply known-safe names
+    derived from the manifest (symbol names are alphanumeric + hyphen).
+    """
+    escaped = " ".join(f'"{escape_for_elisp(a)}"' for a in args)
+    return f"({fn_name} {escaped})"
+#+end_src
+
+** L4: Dispatcher (=src/dispatch.py=)
+
+Calls =emacsclient --eval= with a pre-built s-expression.
+Returns stdout as string. Raises on non-zero exit.
+
+No JSON parsing. No schema validation. Pure subprocess boundary.
+
+#+begin_src python :tangle src/dispatch.py
+"""dispatch.py — emacsclient subprocess boundary."""
+
+import subprocess
+
+
+class EmacsClientError(RuntimeError):
+    pass
+
+
+def eval_in_emacs(sexp: str, timeout: int = 10) -> str:
+    """Evaluate SEXP via emacsclient and return result as string.
+
+    Raises EmacsClientError on non-zero exit or timeout.
+    """
+    try:
+        result = subprocess.run(
+            ["emacsclient", "--eval", sexp],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        raise EmacsClientError("emacsclient not found on PATH")
+    except subprocess.TimeoutExpired:
+        raise EmacsClientError(f"emacsclient timed out after {timeout}s")
+
+    if result.returncode != 0:
+        raise EmacsClientError(
+            f"emacsclient exit {result.returncode}: {result.stderr.strip()}"
+        )
+    return result.stdout.strip()
+#+end_src
+
+** L5: Server (=src/server.py=)
+
+Loads manifest. Registers one MCP tool per function entry.
+Dispatches via L3 + L4. Two entry points: =core= and =maximalist=.
+
+#+begin_src python :tangle src/server.py
+"""server.py — MCP server over stdio."""
+
+import json
+import sys
+from pathlib import Path
+
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent
+
+from escape import build_call
+from dispatch import eval_in_emacs, EmacsClientError
+
+
+def load_manifest(path: Path) -> list[dict]:
+    with path.open() as f:
+        return json.load(f)["functions"]
+
+
+def register_tools(app: Server, functions: list[dict]) -> None:
+    for fn in functions:
+        name = fn["name"]
+        doc  = fn["docstring"]
+        # Derive input schema from arglist heuristic (strings only for now)
+        app.add_tool(
+            Tool(
+                name=name,
+                description=doc,
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "args": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": fn["arglist"],
+                        }
+                    },
+                    "required": ["args"],
+                },
+            )
+        )
+
+
+async def handle_call(name: str, arguments: dict) -> list[TextContent]:
+    args = arguments.get("args", [])
+    sexp = build_call(name, *args)
+    try:
+        result = eval_in_emacs(sexp)
+        return [TextContent(type="text", text=result)]
+    except EmacsClientError as e:
+        return [TextContent(type="text", text=f"error: {e}")]
+
+
+def main(manifest_path: str) -> None:
+    path  = Path(manifest_path)
+    funcs = load_manifest(path)
+    app   = Server("emacs-mcp-maximalist")
+
+    register_tools(app, funcs)
+
+    app.call_tool(handle_call)
+
+    count = len(funcs)
+    print(f"emacs-mcp-maximalist: {count} tools loaded", file=sys.stderr)
+    stdio_server(app)
+
+
+if __name__ == "__main__":
+    manifest = sys.argv[1] if len(sys.argv) > 1 else "emacs-functions.json"
+    main(manifest)
+#+end_src
+
+** L6: Health Check (=bin/health-check.sh=)
+
+#+begin_src bash :tangle bin/health-check.sh :shebang "#!/usr/bin/env bash"
+# health-check.sh — exit 0 ok, 1 degraded, 2 broken
+set -euo pipefail
+
+STATUS=0
+OUT="{}"
+
+check() {
+    local key=$1 val=$2 required=$3
+    if [[ "$val" == "false" && "$required" == "hard" ]]; then
+        STATUS=2
+    elif [[ "$val" == "false" ]]; then
+        [[ $STATUS -lt 1 ]] && STATUS=1
+    fi
+    OUT=$(echo "$OUT" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); d['$key']=$val; print(json.dumps(d))")
+}
+
+# Hard requirements
+emacsclient --eval '(emacs-pid)' &>/dev/null \
+    && check emacs_daemon true  hard \
+    || check emacs_daemon false hard
+
+python3 -c 'import mcp' &>/dev/null \
+    && check mcp_module true  hard \
+    || check mcp_module false hard
+
+[[ -f emacs-functions.json ]] \
+    && check manifest true  hard \
+    || check manifest false hard
+
+# Soft requirements
+[[ -f .mcp.json ]] \
+    && check mcp_json true  soft \
+    || check mcp_json false soft
+
+echo "$OUT"
+exit $STATUS
+#+end_src
+
+* Build Order
+
+Each step has a named acceptance test. Do not proceed to step N+1
+unless step N's acceptance test passes. On failure: document what
+failed, stop, surface as CPRR refutation candidate.
+
+| Step | Component        | Acceptance test                                              |
+|------+------------------+--------------------------------------------------------------|
+|    1 | escape.py        | =pytest tests/test_escape.py= — all cases pass              |
+|    2 | introspect.el    | =(emcp-write-manifest "/tmp/test.json")= returns integer > 0 |
+|    3 | dispatch.py      | =eval_in_emacs('(+ 1 1)')= returns ="2"=                     |
+|    4 | server.py (core) | =tools/list= returns ≥ 20 tools over stdio                   |
+|    5 | server.py (max)  | =tools/list= returns > 1000 tools; Claude Code indexes lazily |
+|    6 | health-check.sh  | exits 0 on a correctly configured machine                    |
+
+* Open Conjectures
+
+These are falsifiable. Do not assume. Instrument each one.
+
+- *C-001*: Claude Code uses on-demand tool indexing and does not load
+  all tool definitions into the context window at session start. /If
+  false: large manifest will produce measurable token overhead at
+  tool-call time./
+- *C-002*: The arglist heuristic (string/buffer/object parameter names)
+  yields > 80% precision on "actually useful for text transformation."
+  /Measurement: manual audit of 50 random functions from manifest./
+- *C-003*: =emacsclient= round-trip latency is < 50ms for pure string
+  functions. /If false: tool call latency will be user-visible./
+- *C-004*: Non-ASCII input survives the escape → emacsclient → Emacs →
+  stdout round trip without corruption. /Test with CJK, emoji, combining
+  characters./
+- *C-005*: The maximalist manifest (all functions) causes a measurable
+  latency difference vs. core manifest at MCP session init.
+
+* Success Criteria
+
+The system is done when:
+
+1. =make manifest= runs against a live Emacs daemon and produces
+   =functions-compact.jsonl= with > 3000 entries. (Observed baseline:
+   3169 functions, 2026-02-04, from a loaded config including ivy/counsel/company.)
+2. =make server-core= starts an MCP server that passes =tools/list=
+   and correctly executes =(string-trim " hello ")= → ="hello"=.
+3. =make server-max= starts an MCP server and Claude Code connects
+   to it without crashing, confirming C-001 by inspection of
+   Claude Code's tool-use trace. (C-001 was observed-confirmed in the
+   original session; this criterion is re-verification.)
+4. =bin/health-check.sh= exits 0 and produces valid JSON on a
+   correctly configured host.
+5. All five conjectures have at least a measurement note in
+   =CONJECTURES.md= (confirmed, refuted, or indeterminate with data).
+
+* Stack
+
+| Component         | Choice          | Rationale                                      |
+|-------------------+-----------------+------------------------------------------------|
+| Introspection     | Emacs Lisp      | Only thing with live access to obarray         |
+| Serialization     | =json-encode=   | Built-in; no external deps in Emacs side       |
+| Protocol shim     | Python + =mcp=  | Anthropic SDK; stdio transport                 |
+| Package manager   | =uv=            | Fast; lockfile reproducibility                 |
+| IPC               | =emacsclient=   | Standard Emacs daemon interface                |
+| Tests             | =pytest=        | Escape and dispatch are pure; easy to unit test |
+| Build             | =make= (gmake)  | Consistent with homelab conventions            |
+| Spec format       | =org-mode=      | Canonical; tangleable; Mermaid-embeddable      |
+
+* Revision Notes
+
+This spec was reconstructed from first principles on 2026-03-17.
+The original implementation (2026-02-04) was developed in a single
+session; the machine it ran on is not recorded.
+
+*Observed artifact*: [[https://gist.github.com/aygp-dr/cc7f50fece2107f8c5b566d1f9cf38ad][gist:cc7f50fe]] — =functions-compact.jsonl=, created
+2026-02-04T00:10, 3169 functions, compact JSONL format (=n=/=s=/=d= keys).
+This is a generated artifact, not hand-authored. It predates the
+chat session by ~43 minutes, placing manifest generation early in the
+development flow.
+
+*Config inference*: The manifest includes =counsel-*=, =company-*=,
+=ivy-*= functions, indicating the daemon was running a full personal
+config — not a vanilla Emacs. The rebuild must decide: reproduce with
+a loaded config (higher count, more useful) or gate with =--daemon --no-init-file=
+(reproducible, lower count). Original chose loaded config.
+
+*C-001 status*: The original session confirmed Claude Code uses
+on-demand tool indexing. This should be treated as prior evidence,
+not an open question, unless the MCP client has changed behavior.
+
+Prior session: [[https://claude.ai/chat/9b7cf6a1-cd64-4eae-bb33-28e370783c20][chat/9b7cf6a1]] (2026-02-04)
+#+end_src
