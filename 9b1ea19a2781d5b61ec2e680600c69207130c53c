@@ -1,0 +1,18 @@
+Session verification (2026-03-18):
+
+Verification timeline:
+- Unicode round-trip tested: "NAÏVE RÉSUMÉ CAFÉ" through both emacs-mcp-core (format)
+  and emacs-mcp-maximalist (concat) — C-004 confirmed, all accented chars preserved
+- Emoji round-trip tested: replace-regexp-in-string with 😊 on "emacs-mcp-maximalist"
+  — 6 vowels replaced, emoji survived escape→emacsclient→Emacs→stdout pipeline
+- C-001 gap identified: server.py has EMCP_TRACE for init latency but no
+  request-level logging to prove which MCP methods Claude Code actually calls
+- C-007 hypothesis drafted: Claude Code (v2.1.78) two-tier indexing vs mcp.el
+  eager symbol interning — different cost profiles for same server
+
+Skill design rationale:
+- Skills chosen over MCP servers because sb/aq/cprr/bd are stateless CLI tools
+  with --json output; MCP server wrapping adds unnecessary JSON-RPC ceremony
+- Key insight: aq especially benefits from skill form because judgment of
+  *when* to announce/check is the hard part, not the command itself
+- bd preferred over gh for issue tracking when .beads/ exists (local-first)
