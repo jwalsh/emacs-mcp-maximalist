@@ -1,0 +1,7 @@
+X-Agent-Role: builder
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: build-step-6
+X-Testing: not runtime-tested (requires emacs daemon + manifest)
+X-Invariants: health-check reads no function names (locality constraint)
+X-Deviations: none
