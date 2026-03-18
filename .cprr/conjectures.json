@@ -1,0 +1,48 @@
+{
+  "conjectures": [
+    {
+      "id": 1,
+      "title": "Claude Code uses on-demand tool indexing",
+      "hypothesis": "Large manifest produces measurable token overhead at tool-call time if false",
+      "status": "open",
+      "created_at": "2026-03-17T21:11:41.225583-04:00",
+      "updated_at": "2026-03-17T21:11:41.225583-04:00"
+    },
+    {
+      "id": 2,
+      "title": "Arglist heuristic yields \u003e80% precision on text functions",
+      "hypothesis": "Manual audit of 50 random functions shows \u003c80% are useful for text transformation",
+      "status": "open",
+      "created_at": "2026-03-17T21:11:41.231231-04:00",
+      "updated_at": "2026-03-17T21:11:41.231231-04:00"
+    },
+    {
+      "id": 3,
+      "title": "emacsclient round-trip \u003c50ms for pure string functions",
+      "hypothesis": "Measured latency exceeds 50ms making tool calls user-visible",
+      "status": "open",
+      "created_at": "2026-03-17T21:11:41.236283-04:00",
+      "updated_at": "2026-03-17T21:11:41.236283-04:00"
+    },
+    {
+      "id": 4,
+      "title": "Non-ASCII survives escape-emacsclient-emacs-stdout round trip",
+      "hypothesis": "CJK, emoji, or combining characters are corrupted in output",
+      "status": "open",
+      "created_at": "2026-03-17T21:11:41.240403-04:00",
+      "updated_at": "2026-03-17T21:11:41.240403-04:00"
+    },
+    {
+      "id": 5,
+      "title": "Maximalist manifest causes measurable latency difference at init",
+      "hypothesis": "No statistically significant difference between core and maximalist init time",
+      "status": "open",
+      "created_at": "2026-03-17T21:11:41.244439-04:00",
+      "updated_at": "2026-03-17T21:11:41.24444-04:00"
+    }
+  ],
+  "next_id": 6,
+  "config": {
+    "local": true
+  }
+}
