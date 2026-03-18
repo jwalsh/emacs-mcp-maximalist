@@ -1,0 +1,7 @@
+X-Agent-Role: bootstrap
+X-Agent-Runner: Claude Code 2.1.78
+X-Agent-Model: Opus 4.6
+X-Phase: pipeline
+X-Testing: gmake --dry-run decompose — full chain resolves; gmake status — all phases pending
+X-Invariants: sentinel files are non-phony; parallel phases share no deps
+X-Deviations: default goal changed from decompose to work (user requested work target)
