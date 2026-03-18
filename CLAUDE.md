@@ -22,7 +22,9 @@ what its primary output artifact is.
 ## What You Are Building
 
 - An MCP server that exposes every text-consuming function in Emacs's
-  `obarray` as an MCP tool, introspected at runtime from a live daemon
+  `obarray` as an MCP tool, introspected at runtime from a live daemon.
+  The primary user is agentic runtimes (Claude Code, MCP clients) —
+  not human Emacs users.
 - Two runtime modes from one codebase: `core` (~50 tools) and
   `maximalist` (~3600+ tools), selected by manifest, not code
 - A deliberate reductio ad absurdum: the system must work to prove that
