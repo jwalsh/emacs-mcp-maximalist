@@ -39,7 +39,13 @@ def eval_in_emacs(sexp: str, timeout: int = 10) -> str:
             f"emacsclient exit {result.returncode}: {result.stderr.strip()}"
         )
 
-    output = result.stdout.strip()
+    # emacsclient may prefix stdout with diagnostic messages when using
+    # TCP connections (e.g., "emacsclient: connected to remote socket at ...").
+    # Strip any lines starting with "emacsclient:" from the output.
+    raw_output = result.stdout.strip()
+    lines = raw_output.split("\n")
+    lines = [l for l in lines if not l.startswith("emacsclient:")]
+    output = "\n".join(lines)
     if EMCP_TRACE:
         elapsed_ms = (time.monotonic_ns() - start_ns) / 1_000_000
         sexp_preview = sexp[:60] + ("..." if len(sexp) > 60 else "")
