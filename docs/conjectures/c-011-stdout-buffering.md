@@ -1,5 +1,10 @@
 # C-011: Emacs Batch Mode Stdout Buffering
 
+## Status: Confirmed and Fixed
+
+Fixed in commit `08252a1` using `send-string-to-terminal`. Four
+independent agents validated the diagnosis and tested six approaches.
+
 ## Conjecture
 
 `princ` + `terpri` in Emacs batch mode does not flush stdout to a
@@ -7,7 +12,20 @@ pipe until process exit or buffer-full. This means interactive MCP
 clients cannot receive responses until the server exits, violating
 the stdio transport requirement for line-by-line response delivery.
 
-## Status: Under investigation
+## Approach Testing (4 agents, 6 approaches)
+
+| Approach | Works? | Notes |
+|----------|--------|-------|
+| `princ` + `terpri` | NO | libc stdio fully buffered on pipes |
+| `princ` + `sit-for 0` | NO | sit-for does not trigger fflush |
+| `send-string-to-terminal` | YES | Direct fd 1 write, cross-platform (chosen) |
+| `write-region /dev/stdout` | YES | Bypasses libc via write(2), Unix only |
+| `write-region /dev/fd/1` | YES | Same mechanism, macOS/Linux |
+| `call-process-region` + `cat` | NO | Output goes to standard-output variable |
+
+Secondary finding: `emcp-stdio--check-daemon` hanging on unreachable
+remote sockets was the primary startup blocker in many cases. Fixed
+with `--timeout 3` and `condition-case`.
 
 ## Evidence
 
