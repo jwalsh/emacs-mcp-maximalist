@@ -89,6 +89,34 @@ If an acceptance test fails, stop. Document what failed, what you tried,
 and what the blocker is. Do not proceed to the next step. Surface the
 failure as a CPRR refutation candidate.
 
+## Decomposition Protocol
+
+Any non-trivial decomposition (spec → tasks, conjecture → measurements,
+feature → implementation plan) requires two agents:
+
+1. **Builder**: Decomposes the work into beads, conjectures, and
+   implementation tasks with priority tiers and dependency graphs.
+
+2. **Reviewer (guard)**: Runs in parallel. Evaluates completeness of
+   the decomposition by:
+   - **Gap analysis**: failure modes, unstated assumptions, unmeasurable
+     conjectures not covered by the builder's output
+   - **Competing systems**: prior art, related concepts, cautionary
+     tales (e.g., vm2 sandbox escapes)
+   - **Historical context**: lineage, academic references, ecosystem
+     position
+   - **Missing conjectures**: propose a C-H (hardening) series for
+     anything the builder missed
+
+The reviewer does not implement — they surface what the builder assumed
+but did not state. Both outputs are committed; conflicts between them
+are resolved by the coordinator (human or orchestrating agent).
+
+Agents that modify code must use `isolation: "worktree"`. Research-only
+agents (docs, reviews, gap analysis) do not need worktrees. All work
+items get beads before agent launch. Merge requires review of the
+worktree diff against contracts before commit.
+
 ## Component Architecture
 
 | Layer | File | Responsibility |
