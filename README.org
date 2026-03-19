@@ -10,10 +10,10 @@
 
 * What
 
-An MCP server that exposes the full Emacs =obarray= — every text-consuming
-function — as MCP tools, introspected at runtime from the live process.
+An MCP server that exposes the full Emacs =obarray= --- every text-consuming
+function --- as MCP tools, introspected at runtime from the live process.
 
-The server is a *pure Elisp implementation* (=src/emcp-stdio.el=): Emacs
+The server is a *pure Elisp implementation* ([[file:src/emcp-stdio.el][src/emcp-stdio.el]]): Emacs
 IS the MCP server. No external dependencies, no manifest file, no
 subprocess shim. The obarray is the tool registry. =funcall= is the
 dispatch. When a running Emacs daemon is detected, nine additional
@@ -64,9 +64,9 @@ emacs --batch -Q -l src/emcp-stdio.el -f emcp-stdio-start
 
 * Elisp Server
 
-The pure Elisp server (=src/emcp-stdio.el=) reads newline-delimited
+The pure Elisp server ([[file:src/emcp-stdio.el][src/emcp-stdio.el]]) reads newline-delimited
 JSON-RPC from stdin and writes responses to stdout. It speaks the MCP
-protocol directly — no manifest file, no subprocess shim.
+protocol directly --- no manifest file, no subprocess shim.
 
 At startup it walks the obarray and builds MCP tool definitions for every
 function whose arglist matches the text-consumer heuristic (parameters
@@ -157,25 +157,31 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
 
 * Architecture
 
-#+begin_example
-Emacs --batch -Q (obarray)
-    | emcp-stdio.el walks obarray at startup
-in-process tool cache (vector of alists)
-    | tools/call
-local funcall (batch-local tools)
-  or
-emacsclient --eval (daemon data-layer tools)
-    |
-result -> JSON-RPC -> stdout
-#+end_example
+#+begin_src mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Server as emcp-stdio.el
+    participant Daemon as Emacs Daemon
+    Client->>Server: initialize
+    Server-->>Client: capabilities
+    Client->>Server: tools/list
+    Server-->>Client: 779 tools (obarray walk)
+    Client->>Server: tools/call (string-trim)
+    Server->>Server: read + eval (local)
+    Server-->>Client: result
+    Client->>Server: tools/call (emcp-data-eval)
+    Server->>Daemon: emacsclient --eval
+    Daemon-->>Server: result
+    Server-->>Client: result
+#+end_src
 
 ** Component Layers
 
-| Layer | File | Role |
-|-------+-------------------+----------------------------------------------|
-| L0 | =emacs= | Running Emacs (batch or daemon) |
-| L1 | =src/emcp-stdio.el= | Pure Elisp MCP server |
-| L2 | =bin/health-check.sh= | Structured health check |
+| Layer | File | Role | Contract |
+|-------+------+------+----------|
+| L0 | =emacs= | Running Emacs (batch or daemon) | --- |
+| L1 | [[file:src/emcp-stdio.el][src/emcp-stdio.el]] | Pure Elisp MCP server | [[file:docs/contracts/io-layer.md][I/O]] -- [[file:docs/contracts/tool-collection.md][Collection]] -- [[file:docs/contracts/dispatch.md][Dispatch]] -- [[file:docs/contracts/daemon-data-layer.md][Daemon]] |
+| L2 | [[file:bin/health-check.sh][bin/health-check.sh]] | Structured health check | --- |
 
 ** Security Boundary
 
@@ -193,7 +199,7 @@ the security boundary natively. Edge cases handled:
 
 | Component | Choice | Rationale |
 |-------------------+----------------------------+-----------------------------------------------------|
-| MCP server | Emacs Lisp (=emcp-stdio.el=) | Emacs IS the server; no process boundary |
+| MCP server | Emacs Lisp ([[file:src/emcp-stdio.el][emcp-stdio.el]]) | Emacs IS the server; no process boundary |
 | Introspection | Emacs Lisp | Only thing with live access to obarray |
 | Argument escaping | =prin1-to-string= (Elisp) | Native serialization; no custom escaper needed |
 | Protocol | JSON-RPC over stdio | MCP spec; =json-serialize= / =json-parse-string= built-in |
@@ -218,6 +224,21 @@ gmake sync          # export README.org -> README.md
 
 ** Pipeline DAG
 
+#+begin_src mermaid
+graph TD
+    A[emacs --batch -Q] --> B[obarray walk]
+    B --> C[text-consumer filter]
+    C --> D[tool cache vector]
+    D --> E[MCP stdio server]
+    E --> F{tools/call}
+    F -->|local| G[read + eval]
+    F -->|daemon| H[emacsclient --eval]
+
+    I[emacs --daemon] -.->|optional| H
+#+end_src
+
+The full build pipeline stages:
+
 #+begin_example
 spec.org
   -> bootstrap
@@ -236,7 +257,23 @@ spec.org
 
 * Conjectures
 
-Five falsifiable hypotheses tracked via =cprr=:
+Falsifiable hypotheses tracked via =cprr=. See [[file:CONJECTURES.md][CONJECTURES.md]] for
+full measurement data and evidence.
+
+** Conjecture State Machine
+
+#+begin_src mermaid
+stateDiagram-v2
+    [*] --> Open: register
+    Open --> Confirmed: measurement confirms
+    Open --> Refuted: measurement contradicts
+    Open --> Indeterminate: inconclusive data
+    Confirmed --> [*]
+    Refuted --> [*]
+    Indeterminate --> Open: new measurement
+#+end_src
+
+** Conjecture Status
 
 | ID | Claim | Status |
 |-------+--------------------------------------------------------------+---------------|
@@ -248,6 +285,25 @@ Five falsifiable hypotheses tracked via =cprr=:
 | C-006 | Vanilla Emacs exposes fewer functions than configured Emacs | open |
 
 Set =EMCP_TRACE=1= to enable per-call latency and init timing instrumentation.
+
+** Implementation Timeline
+
+#+begin_src mermaid
+gantt
+    title Implementation & Verification
+    dateFormat YYYY-MM-DD
+    section Server
+    emcp-stdio.el        :done, 2026-03-18, 1d
+    daemon data layer    :done, 2026-03-18, 1d
+    section Testing
+    ert tests (86)       :done, 2026-03-18, 1d
+    bash tests (84)      :done, 2026-03-18, 1d
+    section Conjectures
+    C-001 to C-006       :done, 2026-03-17, 2d
+    C-008 Python elimination :done, 2026-03-18, 1d
+    C-009 autoload barrier   :active, 2026-03-18, 1d
+    C-010 version compat     :done, 2026-03-18, 1d
+#+end_src
 
 * Anti-Goals
 
@@ -269,8 +325,9 @@ Set =EMCP_TRACE=1= to enable per-call latency and init timing instrumentation.
 
 * Contributing
 
-See =CLAUDE.md= for the full project specification and coding constraints.
-See =AGENTS.md= for agent coordination protocol.
+See [[file:CLAUDE.md][CLAUDE.md]] for the full project specification and coding constraints.
+See [[file:AGENTS.md][AGENTS.md]] for agent coordination protocol.
+See [[file:spec.org][spec.org]] for the canonical project specification.
 
 * License
 
