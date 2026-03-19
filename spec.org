@@ -590,4 +590,3 @@ on-demand tool indexing. This should be treated as prior evidence,
 not an open question, unless the MCP client has changed behavior.
 
 Prior session: [[https://claude.ai/chat/9b7cf6a1-cd64-4eae-bb33-28e370783c20][chat/9b7cf6a1]] (2026-02-04)
-#+end_src
