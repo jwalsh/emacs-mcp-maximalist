@@ -16,6 +16,7 @@
 
 (require 'json)
 (require 'help-fns)
+(require 'cl-lib)
 
 (defconst emcp-stdio--protocol-version "2024-11-05"
   "MCP protocol version we speak.")
@@ -334,9 +335,19 @@ to avoid embedded escaped quotes that confuse the Elisp reader."
         (let ((result
                (if (string-prefix-p "emcp-data-" name)
                    ;; Daemon tool — dispatch to running Emacs
-                   (if emcp-stdio--daemon-available
-                       (emcp-stdio--daemon-call name args)
-                     (error "No daemon available for %s" name))
+                   (progn
+                     (cl-incf emcp-stdio--daemon-call-count)
+                     (if emcp-stdio--daemon-available
+                         (condition-case daemon-err
+                             (emcp-stdio--daemon-call name args)
+                           (error
+                            (cl-incf emcp-stdio--daemon-error-count)
+                            ;; Try recovery once
+                            (if (emcp-stdio--daemon-recover)
+                                (emcp-stdio--daemon-call name args)
+                              (error "Daemon unavailable: %s"
+                                     (error-message-string daemon-err)))))
+                       (error "No daemon available for %s" name)))
                  ;; Local tool — eval in batch process
                  (let ((sym (intern-soft name)))
                    (unless (and sym (fboundp sym))
@@ -379,6 +390,39 @@ to avoid embedded escaped quotes that confuse the Elisp reader."
       (emcp-stdio--respond-error id -32601
                                  (format "Method not found: %s" method))))))
 
+;;; ---- Telemetry ----
+
+(defvar emcp-stdio--request-count 0 "Total JSON-RPC requests received.")
+(defvar emcp-stdio--call-count 0 "Total tools/call dispatches.")
+(defvar emcp-stdio--error-count 0 "Total errors caught.")
+(defvar emcp-stdio--daemon-call-count 0 "Total daemon tool dispatches.")
+(defvar emcp-stdio--daemon-error-count 0 "Daemon errors (timeout, crash).")
+(defvar emcp-stdio--start-time nil "Server start time (float).")
+
+(defun emcp-stdio--log-telemetry ()
+  "Log telemetry summary to stderr."
+  (let ((uptime (if emcp-stdio--start-time
+                    (- (float-time) emcp-stdio--start-time)
+                  0)))
+    (message "%s: shutdown after %.1fs — %d requests, %d calls (%d daemon), %d errors (%d daemon)"
+             emcp-stdio--server-name uptime
+             emcp-stdio--request-count emcp-stdio--call-count
+             emcp-stdio--daemon-call-count
+             emcp-stdio--error-count emcp-stdio--daemon-error-count)))
+
+;;; ---- Daemon recovery ----
+
+(defun emcp-stdio--daemon-recover ()
+  "Attempt to reconnect to daemon after a call failure.
+Returns non-nil if recovery succeeded."
+  (message "%s: daemon call failed, attempting recovery..." emcp-stdio--server-name)
+  (let ((recovered (emcp-stdio--check-daemon)))
+    (setq emcp-stdio--daemon-available recovered)
+    (if recovered
+        (message "%s: daemon recovered" emcp-stdio--server-name)
+      (message "%s: daemon unreachable — data layer tools disabled" emcp-stdio--server-name))
+    recovered))
+
 ;;; ---- Main ----
 
 (defun emcp-stdio-start ()
@@ -411,16 +455,24 @@ to avoid embedded escaped quotes that confuse the Elisp reader."
                (format " + %d daemon" (length emcp-stdio--daemon-tool-defs))
              ", no daemon"))
   ;; Read loop — exits when stdin closes (client disconnects)
+  (setq emcp-stdio--start-time (float-time))
   (let (line)
     (while (setq line (emcp-stdio--read-line))
       (unless (string-empty-p line)
+        (cl-incf emcp-stdio--request-count)
         (condition-case err
-            (emcp-stdio--dispatch
-             (json-parse-string line :object-type 'alist))
+            (let ((msg (json-parse-string line :object-type 'alist)))
+              (when (string= "tools/call" (alist-get 'method msg))
+                (cl-incf emcp-stdio--call-count))
+              (emcp-stdio--dispatch msg))
           (json-parse-error
+           (cl-incf emcp-stdio--error-count)
            (message "JSON parse error: %s" (error-message-string err)))
           (error
-           (message "Dispatch error: %s" (error-message-string err))))))))
+           (cl-incf emcp-stdio--error-count)
+           (message "Dispatch error: %s" (error-message-string err)))))))
+  ;; Shutdown telemetry
+  (emcp-stdio--log-telemetry))
 
 (provide 'emcp-stdio)
 ;;; emcp-stdio.el ends here
