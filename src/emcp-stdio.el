@@ -111,9 +111,13 @@ Set to `always' to expose every fboundp symbol (true maximalist).")
   "Non-nil if emacsclient can reach a running daemon.")
 
 (defun emcp-stdio--check-daemon ()
-  "Return non-nil if a daemon is reachable."
-  (zerop (call-process "emacsclient" nil nil nil
-                       "--eval" "(emacs-pid)")))
+  "Return non-nil if a daemon is reachable.
+Uses a 3-second timeout to avoid blocking indefinitely."
+  (condition-case nil
+      (zerop (call-process "emacsclient" nil nil nil
+                           "--timeout" "3"
+                           "--eval" "(emacs-pid)"))
+    (error nil)))
 
 (defun emcp-stdio--daemon-eval (sexp-string)
   "Evaluate SEXP-STRING in the running daemon.  Return result string.
@@ -343,7 +347,8 @@ to avoid embedded escaped quotes that confuse the Elisp reader."
        (emcp-stdio--respond
         id `((content . [((type . "text")
                           (text . ,(format "error: %s"
-                                           (error-message-string err))))])))))))
+                                           (error-message-string err))))])
+             (isError . t)))))))
 
 ;;; ---- Dispatch ----
 
