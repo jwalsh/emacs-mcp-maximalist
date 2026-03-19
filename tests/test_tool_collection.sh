@@ -8,7 +8,7 @@
 # Usage:
 #   bash tests/test_tool_collection.sh
 #
-# Requires: emacs, python3 (with json module)
+# Requires: emacs, python3 (used only as JSON parser, not part of project stack)
 
 set -uo pipefail
 
@@ -57,7 +57,7 @@ fi
 
 # ---- Helper: extract tools/list JSON from raw MCP server output ----
 # The output may span multiple lines due to princ line wrapping in large
-# responses. We use Python's JSONDecoder to iteratively find JSON objects
+# responses. We use JSONDecoder to iteratively find JSON objects
 # and skip any error/diagnostic lines mixed into stdout.
 extract_tools_response() {
     python3 -c "
@@ -149,7 +149,7 @@ echo ""
 echo "=== Test Results ==="
 echo ""
 
-# ---- Helper: run a Python check on the tools JSON ----
+# ---- Helper: run a JSON check on the tools response ----
 check_tools() {
     local json="$1"
     local expr="$2"

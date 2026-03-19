@@ -1,5 +1,11 @@
 # C-003: emacsclient Round-Trip Latency
 
+**Note**: This research doc references the historical Python stack
+(dispatch.py, subprocess.run) which has been removed. Measurements
+were taken using that stack; the conjecture result (Confirmed, 2.3ms
+median) remains valid. The pure Elisp server eliminates the emacsclient
+round-trip for local tools entirely.
+
 ## Conjecture
 
 `emacsclient` round-trip latency is < 50ms for pure string functions.

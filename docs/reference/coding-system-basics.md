@@ -118,7 +118,7 @@ Conjecture C-004 claims non-ASCII input survives the escape ->
 emacsclient -> Emacs -> stdout round trip. The coding system at each
 boundary is the main risk:
 
-- **escape.py -> emacsclient stdin**: Python encodes to UTF-8 by default
+- **caller -> emacsclient stdin**: UTF-8 by default
 - **emacsclient -> daemon socket**: Uses Emacs's internal encoding
 - **daemon eval -> result**: Result is a Lisp string in internal encoding
 - **emacsclient -> stdout**: Printed representation, encoding depends on

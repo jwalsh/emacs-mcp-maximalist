@@ -14,18 +14,17 @@ Before launching agents, check what work already exists:
 
 ```bash
 # Check for existing research docs
-for i in $(seq -w 1 5); do
+for i in $(seq -w 1 8); do
   test -f "docs/conjectures/c-0${i}-research.md" && echo "EXISTS: C-00${i}" || echo "MISSING: C-00${i}"
 done
 
 # Check for existing design docs
 ls docs/design/*.md 2>/dev/null && echo "DESIGN_DOCS: found" || echo "DESIGN_DOCS: none"
 
-# Check build step completion (test files exist + pass)
-test -f src/escape.py && echo "L3: exists" || echo "L3: missing"
-test -f src/introspect.el && echo "L1: exists" || echo "L1: missing"
-test -f src/dispatch.py && echo "L4: exists" || echo "L4: missing"
-test -f src/server.py && echo "L5: exists" || echo "L5: missing"
+# Check build step completion
+test -f src/emcp-stdio.el && echo "emcp-stdio.el: exists" || echo "emcp-stdio.el: missing"
+test -f src/introspect.el && echo "introspect.el: exists" || echo "introspect.el: missing"
+test -f tests/test-emcp-stdio.el && echo "test-emcp-stdio.el: exists" || echo "test-emcp-stdio.el: missing"
 ```
 
 - Skip launching research agents for conjectures that already have
@@ -42,7 +41,7 @@ Read CLAUDE.md and spec.org to identify parallelizable work.
 
 ## Research Agents (one per open conjecture)
 
-For each conjecture (C-001 through C-005):
+For each conjecture (C-001 through C-008):
 - Launch a background Agent with subagent_type=general-purpose
 - Prompt: research the conjecture, produce findings with measurement
   approach, confound analysis, and experiment design

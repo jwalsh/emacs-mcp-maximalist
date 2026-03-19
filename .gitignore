@@ -6,17 +6,15 @@ functions-core.jsonl
 # Sentinel files (local pipeline state)
 .sentinels/
 
-# Python
+# Legacy artifacts (kept to prevent accidental commits)
 __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+uv.lock
 
 # README.md is derived from README.org via gmake sync
 README.md
 
 # Environment
 .env
-
-# uv
-uv.lock

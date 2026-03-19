@@ -7,7 +7,7 @@ allowed-tools: Read, Bash, Grep, Glob
 
 # Verify Bootstrap
 
-This skill is inherently idempotent — it reads files and reports findings.
+This skill is inherently idempotent -- it reads files and reports findings.
 Running it multiple times is expected and safe.
 
 ## Prerequisite Check
@@ -31,13 +31,14 @@ Read CLAUDE.md, spec.org, and memory files, then answer:
    Expected: Agentic runtimes (Claude Code / MCP clients).
 
 3. **What is the primary output artifact?**
-   Expected: A running MCP server over stdio with two modes (core/maximalist).
+   Expected: A running MCP server over stdio (pure Elisp, `emcp-stdio.el`).
 
 4. **What is the first build step?**
-   Expected: escape.py — pytest tests/test_escape.py passes all cases.
+   Expected: emcp-stdio.el -- `emacs --batch -Q -l src/emcp-stdio.el -f emcp-stdio-start`
+   starts and responds to `tools/list`.
 
 5. **How many open conjectures?**
-   Expected: 5 (C-001 through C-005).
+   Expected: 6 (C-001 through C-006, plus C-008).
 
 ## Process
 

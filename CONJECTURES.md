@@ -9,7 +9,7 @@ Detailed research in `docs/conjectures/c-NNN-research.md`.
 |----|-------|--------|----------|
 | C-001 | Claude Code uses on-demand tool indexing | Confirmed (refined) | 2026-03-18: Protocol-level measurement confirms two-tier architecture. MCP layer is eager (all 780 tools in one 263KB response, no pagination). Claude Code application layer is lazy: tool names listed as `<available-deferred-tools>`, full schemas fetched on demand via `ToolSearch`. See `docs/conjectures/c-001-research.md` |
 | C-002 | Arglist heuristic yields > 80% precision | Refuted | 2026-03-18: 50-function audit yields 40% precision (20 TP, 30 FP). `object`/`buffer` arg patterns dominate false positives. See `docs/c002-audit.md` |
-| C-003 | emacsclient round-trip < 50ms for string fns | Confirmed | 2026-03-18: median=2.3ms, P95=~3ms, worst=24ms (GC jitter). 200 samples, 0% above 50ms. Prior 10.9ms was inflated by Python startup overhead |
+| C-003 | emacsclient round-trip < 50ms for string fns | Confirmed | 2026-03-18: median=2.3ms, P95=~3ms, worst=24ms (GC jitter). 200 samples, 0% above 50ms. Prior 10.9ms was inflated by measurement script overhead |
 | C-004 | Non-ASCII survives full round trip | Confirmed | 2026-03-18: 14 character classes tested (CJK, emoji, ZWJ families, Arabic, Thai, Korean, combining, supplementary plane, flags). All byte-identical round trips via hex comparison |
 | C-005 | Maximalist manifest causes measurable init latency vs core | Confirmed | 2026-03-18: core=0.1ms (60 tools), 780 tools=1.7ms, 3.6k extrapolated=~10ms. Token cost is the real impact: core ~5.7k tokens vs maximalist ~341k tokens |
 | C-006 | Vanilla Emacs exposes substantially fewer functions than configured | Confirmed | 2026-03-18: vanilla (-Q) = 8460, configured (init.el) = 10040. Delta = 1580 (18.7%). Same C primitives (1336); difference is Elisp-defined functions |
@@ -50,10 +50,9 @@ Prior evidence: original session (2026-02-04, ~3169 tools), re-verified
 
 **2026-03-18 update** (supersedes prior measurement):
 - Median: 2.3ms, P95: ~3ms, worst outlier: 24ms (GC/TCP jitter)
-- dispatch.py wrapper adds ~0.2ms overhead (negligible)
 - 200 samples across 10 expressions, 0% above 50ms threshold
-- Prior data showing "10.9ms" was inflated by Python interpreter startup
-  overhead in measurement script
+- Prior data showing "10.9ms" was inflated by measurement script overhead
+  (historical -- Python stack removed)
 - Daemon connected via TCP (0.0.0.0); Unix socket would be faster
 
 Prior measurement (2026-03-17): `(+ 1 1)` = 10.9ms, `(string-trim " hello ")` < 15ms.
@@ -67,8 +66,9 @@ Prior measurement (2026-03-17): `(+ 1 1)` = 10.9ms, `(string-trim " hello ")` < 
 - All byte-identical round trips confirmed via hex comparison
 - Transformation tests pass: upcase/downcase preserve diacritics,
   string-trim works on CJK, reverse works on Japanese
-- `escape_for_elisp()` only escapes 4 ASCII chars (`\`, `"`, `\n`, `\r`)
-  plus rejects null bytes; all non-ASCII passes through as raw UTF-8
+- The escape layer (historical -- now replaced by `prin1-to-string` /
+  `format "%S"` in the Elisp server) only touched ASCII chars;
+  all non-ASCII passes through as raw UTF-8
 
 Prior measurement (2026-03-17): 6/6 live tests pass (CJK, emoji, combining).
 
@@ -88,7 +88,7 @@ Prior measurement (2026-03-17): core=0.7ms (69 tools), maximalist=15.9ms (4324 t
 ### C-002: Arglist heuristic precision (Refuted)
 
 **2026-03-18 measurement**: 50-function random sample (seed=42) from
-`functions-compact.jsonl`, manually classified.
+the manifest (historical `functions-compact.jsonl`), manually classified.
 
 | Metric | Value |
 |--------|-------|
@@ -207,10 +207,15 @@ Full analysis: `docs/conjectures/c-008-research.md`.
 
 ## Instrumentation Hooks
 
-- **C-001, C-005**: `EMCP_TRACE=1` environment variable in `server.py`
-- **C-003**: `EMCP_TRACE=1` in `dispatch.py` logs per-call latency
-- **C-004**: `tests/test_dispatch_live.py::TestNonAsciiRoundTrip`
-- **C-002**: Random sampling from `functions-compact.jsonl` (manual)
+(Historical -- Python stack removed; see C-008 for the pure Elisp replacement.)
+
+- **C-001, C-005**: Measured via `emacs --batch -Q -l src/emcp-stdio.el` with
+  JSON-RPC requests; tool count and init timing from `tools/list` response
+- **C-003**: `emacsclient --eval` timing via shell scripts
+- **C-004**: `tests/test_emcp_stdio_integration.sh` Unicode test suite (U-01
+  through U-04)
+- **C-002**: Random sampling from `functions-compact.jsonl` (manual audit,
+  see `docs/c002-audit.md`)
 - **C-006**: `emacsclient --eval` with `mapatoms`/`fboundp` counting against
   daemons started with `-Q` vs normal init
 - **C-008**: `emacs --batch -Q -l src/emcp-stdio.el -f emcp-stdio-start` with

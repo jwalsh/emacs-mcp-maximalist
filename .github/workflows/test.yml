@@ -32,9 +32,12 @@ jobs:
           TOOLS='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
           OUTPUT=$(printf '%s\n%s\n' "$INIT" "$TOOLS" | timeout 10 emacs --batch -Q -l src/emcp-stdio.el -f emcp-stdio-start 2>/dev/null || true)
           echo "$OUTPUT"
-          # Verify we got two JSON-RPC responses
-          echo "$OUTPUT" | head -1 | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['result']['protocolVersion']=='2024-11-05', 'bad init'; print('initialize OK')"
-          echo "$OUTPUT" | sed -n '2p' | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'tools' in d['result'], 'no tools key'; print('tools/list OK:', len(d['result']['tools']), 'tools')"
+          # Verify we got two JSON-RPC responses (jq for JSON parsing)
+          PROTO=$(echo "$OUTPUT" | head -1 | jq -r '.result.protocolVersion')
+          [ "$PROTO" = "2024-11-05" ] && echo "initialize OK" || { echo "bad init: $PROTO"; exit 1; }
+          TOOL_COUNT=$(echo "$OUTPUT" | sed -n '2p' | jq '.result.tools | length')
+          echo "tools/list OK: $TOOL_COUNT tools"
+          [ "$TOOL_COUNT" -gt 0 ] || { echo "no tools found"; exit 1; }
 
       - name: Run integration tests
         if: hashFiles('tests/test_emcp_stdio_integration.sh') != ''

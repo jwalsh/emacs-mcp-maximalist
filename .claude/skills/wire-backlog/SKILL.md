@@ -37,16 +37,15 @@ gh issue create --title "Step N: <component>" \
 ```
 
 Build steps for this project:
-1. escape.py — pytest tests/test_escape.py passes
-2. introspect.el — emcp-write-manifest returns integer > 0
-3. dispatch.py — eval_in_emacs('(+ 1 1)') returns "2"
-4. server.py (core) — tools/list returns >= 20 tools
-5. server.py (maximalist) — tools/list returns > 1000 tools
-6. health-check.sh — exits 0 on configured machine
+1. emcp-stdio.el -- `emacs --batch -Q -l src/emcp-stdio.el -f emcp-stdio-start`
+   responds to `tools/list` with >= 700 tools
+2. ert tests -- `emacs --batch -Q -l tests/test-emcp-stdio.el -f ert-run-tests-batch`
+   passes all cases
+3. health-check.sh -- exits 0 on configured machine
 
 ## Step 2: Create Conjecture Issues
 
-For each conjecture (C-001 through C-005), create a tracking issue:
+For each conjecture (C-001 through C-006, C-008), create a tracking issue:
 
 ```bash
 gh issue create --title "C-NNN: <claim summary>" \
@@ -56,9 +55,9 @@ gh issue create --title "C-NNN: <claim summary>" \
 
 ## Step 3: Wire Dependencies
 
-Add dependency notes in issue bodies — each step references its predecessor:
+Add dependency notes in issue bodies -- each step references its predecessor:
 "Blocked by #N (Step N-1: component)"
 
 ## Step 4: Verify
 
-Run `gh issue list` — should show all build steps and conjectures.
+Run `gh issue list` -- should show all build steps and conjectures.

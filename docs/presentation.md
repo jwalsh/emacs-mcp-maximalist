@@ -16,23 +16,27 @@ experiment in protocol design limits.
 ## The Setup
 
 ```
-┌─────────────┐     introspect      ┌──────────────────┐
-│ Emacs daemon │ ──── obarray ────→ │ manifest (JSONL)  │
-│  (vanilla)   │     780-3600 fns   │ {n, s, d} per fn  │
-└──────┬───────┘                    └────────┬──────────┘
-       │                                     │
-       │ emacsclient --eval                  │ load
-       │ (2.3ms median)                      ↓
-       │                            ┌──────────────────┐
-       └────────────────────────────│   MCP server.py   │
-                                    │  stdio transport   │
-                                    └────────┬──────────┘
-                                             │
-                                      tools/list
-                                             ↓
                                     ┌──────────────────┐
                                     │   Claude Code     │
                                     │  (MCP client)     │
+                                    └────────┬─────────┘
+                                             │ stdin/stdout
+                                      tools/list, tools/call
+                                             │
+                                    ┌────────┴─────────┐
+                                    │  emacs --batch    │
+                                    │  emcp-stdio.el    │
+                                    │  (pure Elisp MCP  │
+                                    │   server, ~250 LoC)│
+                                    └────────┬─────────┘
+                                             │
+                                      mapatoms (obarray)
+                                      780-3600 tools
+                                             │
+                                    ┌────────┴─────────┐
+                                    │ Emacs daemon      │
+                                    │ (optional, for    │
+                                    │  9 data tools)    │
                                     └──────────────────┘
 ```
 
@@ -40,8 +44,9 @@ experiment in protocol design limits.
 tells it. All function definitions come from `obarray` introspection
 at runtime. Nothing is hardcoded.
 
-**Two modes from one codebase**: `core` (~60 tools) and `maximalist`
-(~780-3600 tools), selected by which manifest file is loaded.
+**Two modes from one codebase**: `core` (~779 tools with `-Q`) and
+`maximalist` (~3600+ tools with user init), selected by Emacs startup
+flags.
 
 ---
 
@@ -129,25 +134,23 @@ because of context saturation.
 ### 4. Emacs is absurdly fast as an IPC target
 
 emacsclient round-trip: **2.3ms median**. That's TCP, not even Unix
-socket. String transformation, regex, case conversion — all under 3ms
+socket. String transformation, regex, case conversion -- all under 3ms
 at P95. The 50ms threshold was conservative by 20x.
 
-The escape layer adds 0.2ms. The full Python dispatch wrapper is
-negligible. Emacs is not the bottleneck in any realistic MCP
-tool-call chain.
+With the pure Elisp server (`emcp-stdio.el`), local tool dispatch is
+in-process via `funcall` -- effectively zero IPC overhead. Emacs is
+not the bottleneck in any realistic MCP tool-call chain.
 
 ### 5. Unicode just works
 
-14 character classes including ZWJ emoji families (👨‍👩‍👧‍👦), Arabic,
-Thai, Korean, CJK, combining characters, supplementary plane
-(𝄞), flag emoji (🇺🇸). Every one survived the full
-`escape_for_elisp → emacsclient → Emacs → stdout → Python` pipeline
+14 character classes including ZWJ emoji families, Arabic, Thai,
+Korean, CJK, combining characters, supplementary plane, flag emoji.
+Every one survived the full JSON -> Elisp -> JSON round trip
 byte-identical.
 
-The reason is simple: `escape_for_elisp()` only touches 4 ASCII
-characters (`\`, `"`, `\n`, `\r`) and rejects null bytes. Everything
-else passes through as raw UTF-8. Emacs handles Unicode natively.
-No transformation, no corruption.
+The reason is simple: `json-parse-string` handles UTF-8 natively,
+and `json-serialize` + `decode-coding-string` preserves it on output.
+Emacs handles Unicode natively. No transformation, no corruption.
 
 ---
 
@@ -202,27 +205,23 @@ and know exactly what to build and how to verify it.
 ## Reproduction
 
 ```bash
-# Prerequisites: Emacs daemon running, Python 3.11+, uv
-emacs --daemon
+# Prerequisites: Emacs 28+ installed
+# Start core server (~779 tools, vanilla Emacs)
+gmake run-core
 
-# Generate manifest from live daemon
-gmake manifest
+# Start maximalist server (~3600+ tools, with user init)
+gmake run-max
 
-# Run tests
+# Run ERT tests
 gmake test
 
-# Start core server (60 tools)
-gmake server-core
-
-# Start maximalist server (780+ tools)
-gmake server-max
-
-# Health check
+# Health check (optional, requires daemon)
+emacs --daemon
 bin/health-check.sh
 ```
 
-All conjectures are independently re-measurable. `EMCP_TRACE=1`
-enables latency instrumentation in both `server.py` and `dispatch.py`.
+All conjectures are independently re-measurable via the integration
+test suite (`tests/test_emcp_stdio_integration.sh`).
 
 ---
 
@@ -233,10 +232,9 @@ enables latency instrumentation in both `server.py` and `dispatch.py`.
 | Conjectures measured | 6/6 |
 | Confirmed | 5 (C-001, C-003, C-004, C-005, C-006) |
 | Refuted | 1 (C-002: arglist precision is 40%, not 80%) |
-| CI | Green (Python 3.11/3.12/3.13) |
+| CI | Green (Emacs 28.2/29.4/30.1) |
 | Open issues | 6 remaining (build step tracking) |
-| Lines of Elisp | ~120 (introspect.el) |
-| Lines of Python | ~200 (escape + dispatch + server) |
+| Lines of Elisp | ~250 (emcp-stdio.el) |
 
 ---
 

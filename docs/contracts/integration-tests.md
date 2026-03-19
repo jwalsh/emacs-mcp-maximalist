@@ -142,9 +142,8 @@ negatives for functions with generic parameter names.
   JSON parse -> Elisp eval -> JSON serialize round trip.
 - **C-005**: Measured via P-04. Compare tool counts and startup time between
   `-Q` (vanilla) and full-init modes.
-- **C-008** (functional parity): If the Python server is available, same
-  inputs should produce same outputs. Deferred -- requires Python server
-  running concurrently.
+- **C-008** (functional parity): Confirmed. The pure Elisp server
+  replaced the Python stack entirely. See `docs/conjectures/c-008-research.md`.
 
 ## Test Runner
 
@@ -153,5 +152,5 @@ negatives for functions with generic parameter names.
 - Exit 1 if any required test fails
 - Print summary: PASS/FAIL/SKIP counts
 - `--verbose` flag for detailed output
-- Uses `jq` for JSON parsing where available, falls back to `python3 -c`
+- Uses `jq` for JSON parsing where available, falls back to shell-native parsing
 - No external test framework dependency

@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 ;;
-;; Emacs IS the MCP server.  No Python.  No emacsclient.  No manifest file.
+;; Emacs IS the MCP server.  No external runtime.  No manifest file.
 ;; The obarray is the tool registry.  funcall is the dispatch.
 ;;
 ;; Usage:
@@ -121,7 +121,7 @@ Filters emacsclient diagnostic lines from the output."
                               "--eval" sexp-string)))
       (if (zerop code)
           ;; Filter emacsclient diagnostic lines (TCP socket warnings, etc.)
-          ;; Same pattern as dispatch.py: strip lines containing "emacsclient:"
+          ;; Strip emacsclient diagnostic lines containing "emacsclient:"
           (let ((lines (split-string (buffer-string) "\n" t)))
             (string-trim
              (mapconcat #'identity

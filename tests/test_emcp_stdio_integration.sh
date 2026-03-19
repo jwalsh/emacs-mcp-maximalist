@@ -10,7 +10,7 @@
 #   0  all required tests passed
 #   1  one or more required tests failed
 #
-# Requires: emacs (batch mode), python3 (for JSON parsing)
+# Requires: emacs (batch mode), python3 (used only as JSON parser, not part of project stack)
 set -uo pipefail
 
 # ---------------------------------------------------------------------------
@@ -89,9 +89,9 @@ count_lines() {
     fi
 }
 
-# Parse a JSON field using python3. Robust and available on macOS.
+# Parse a JSON field. Uses python3 as a JSON parser (test utility only).
 # Usage: json_get '{"a":1}' '.a'  => 1
-# The path uses Python dict/list syntax after the root 'o' variable.
+# The path uses dict/list syntax after the root 'o' variable.
 # Example paths: '.["jsonrpc"]'  '.["result"]["tools"]'
 json_get() {
     local json="$1"
@@ -260,7 +260,7 @@ if [[ ! -f "$EMCP_EL" ]]; then
 fi
 
 if ! command -v python3 &>/dev/null; then
-    echo "FATAL: python3 not found (required for JSON parsing)"
+    echo "FATAL: python3 not found (required as JSON parser for tests)"
     exit 1
 fi
 
@@ -573,7 +573,7 @@ done
 
 # U-01 (mapped to U-04 in plan): upcase of cafe with accent
 U_TEXT_50=$(json_get "$U_RESP_50" '["result"]["content"][0]["text"]')
-# Python: check the actual Unicode content
+# Check the actual Unicode content
 python3 -c "
 import sys
 text = sys.argv[1]

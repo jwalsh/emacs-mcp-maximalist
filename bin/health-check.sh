@@ -3,7 +3,26 @@
 set -euo pipefail
 
 STATUS=0
-OUT="{}"
+
+# Build JSON output incrementally using jq if available, else a simple approach
+if command -v jq &>/dev/null; then
+    OUT="{}"
+    json_set() {
+        local key=$1 val=$2
+        if [[ "$val" == "true" ]]; then
+            OUT=$(echo "$OUT" | jq --arg k "$key" '. + {($k): true}')
+        else
+            OUT=$(echo "$OUT" | jq --arg k "$key" '. + {($k): false}')
+        fi
+    }
+else
+    # Fallback: build JSON manually
+    declare -a JSON_PAIRS=()
+    json_set() {
+        local key=$1 val=$2
+        JSON_PAIRS+=("\"$key\":$val")
+    }
+fi
 
 check() {
     local key=$1 val=$2 required=$3
@@ -12,10 +31,7 @@ check() {
     elif [[ "$val" == "false" ]]; then
         [[ $STATUS -lt 1 ]] && STATUS=1
     fi
-    local pyval
-    [[ "$val" == "true" ]] && pyval="True" || pyval="False"
-    OUT=$(echo "$OUT" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); d['$key']=$pyval; print(json.dumps(d))")
+    json_set "$key" "$val"
 }
 
 # Hard requirements
@@ -23,13 +39,9 @@ emacsclient --eval '(emacs-pid)' &>/dev/null \
     && check emacs_daemon true  hard \
     || check emacs_daemon false hard
 
-uv run python3 -c 'import mcp' &>/dev/null \
-    && check mcp_module true  hard \
-    || check mcp_module false hard
-
-[[ -f functions-compact.jsonl || -f emacs-functions.json ]] \
-    && check manifest true  hard \
-    || check manifest false hard
+emacs --batch -Q -l src/emcp-stdio.el --eval '(kill-emacs 0)' &>/dev/null \
+    && check emcp_stdio true  hard \
+    || check emcp_stdio false hard
 
 # Soft requirements
 [[ -f .mcp.json ]] \
@@ -40,9 +52,24 @@ uv run python3 -c 'import mcp' &>/dev/null \
     && check claude_md true  soft \
     || check claude_md false soft
 
-[[ -f src/escape.py ]] \
-    && check escape_py true  soft \
-    || check escape_py false soft
+[[ -f src/emcp-stdio.el ]] \
+    && check emcp_stdio_el true  soft \
+    || check emcp_stdio_el false soft
 
-echo "$OUT"
+if command -v jq &>/dev/null; then
+    echo "$OUT"
+else
+    # Build JSON from pairs
+    printf '{'
+    local first=true
+    for pair in "${JSON_PAIRS[@]}"; do
+        if [[ "$first" == "true" ]]; then
+            first=false
+        else
+            printf ','
+        fi
+        printf '%s' "$pair"
+    done
+    printf '}\n'
+fi
 exit $STATUS

@@ -143,8 +143,8 @@ Removes the final newline, if any, from *string*.
 
 ### Key functions used by the project
 
-1. **`concat`**: Used extensively in `introspect.el` for building JSON
-   strings and s-expressions. Also in `escape.py`'s Elisp equivalent.
+1. **`concat`**: Used extensively in `emcp-stdio.el` and `introspect.el`
+   for building JSON strings and s-expressions.
 
 2. **`format`** (documented in separate section): The workhorse for
    building formatted output strings. Used with `%s`, `%S` (prin1

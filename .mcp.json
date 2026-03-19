@@ -1,18 +1,12 @@
 {
   "mcpServers": {
     "emacs-mcp-core": {
-      "command": "uv",
-      "args": ["run", "python", "src/server.py", "functions-core.jsonl"],
-      "env": {
-        "PYTHONPATH": "src"
-      }
+      "command": "emacs",
+      "args": ["--batch", "-Q", "-l", "src/emcp-stdio.el", "-f", "emcp-stdio-start"]
     },
     "emacs-mcp-maximalist": {
-      "command": "uv",
-      "args": ["run", "python", "src/server.py", "functions-compact.jsonl"],
-      "env": {
-        "PYTHONPATH": "src"
-      }
+      "command": "emacs",
+      "args": ["--batch", "-l", "src/emcp-stdio.el", "-f", "emcp-stdio-start"]
     }
   }
 }

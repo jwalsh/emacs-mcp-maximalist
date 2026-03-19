@@ -1,5 +1,11 @@
 # C-005: Maximalist vs Core Init Latency
 
+**Note**: This research doc references the historical Python stack
+(server.py, create_server, JSONL manifest loading) which has been
+removed. The conjecture result (Confirmed) remains valid. The pure
+Elisp server measures init latency via `mapatoms` introspection
+time rather than manifest loading time.
+
 ## Conjecture
 
 The maximalist manifest (all functions) causes a measurable latency

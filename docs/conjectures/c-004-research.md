@@ -1,5 +1,11 @@
 # C-004: Non-ASCII Round-Trip Integrity
 
+**Note**: This research doc references the historical Python stack
+(escape_for_elisp, test_escape.py, dispatch.eval_in_emacs) which has
+been removed. The conjecture result (Confirmed) remains valid. The pure
+Elisp server uses `json-parse-string` / `json-serialize` for the round
+trip, with `decode-coding-string` ensuring correct UTF-8 output.
+
 ## Conjecture
 
 Non-ASCII input survives the escape -> emacsclient -> Emacs -> stdout

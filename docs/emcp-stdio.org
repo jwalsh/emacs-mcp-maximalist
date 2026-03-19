@@ -10,7 +10,7 @@
 It reads newline-delimited JSON-RPC 2.0 messages from stdin and writes responses to stdout,
 running Emacs in =--batch= mode.  Diagnostics go to stderr via =message=.
 
-The file eliminates the Python stack (layers L1--L5 of the original architecture) by making
+The file replaces the original multi-layer architecture by making
 Emacs simultaneously the MCP protocol handler, the function authority, and the dispatch engine.
 See [[file:conjectures/c-008-research.md][C-008]] for the conjecture and measurements behind this collapse.
 
@@ -40,15 +40,18 @@ Mode is determined by Emacs startup flags, not by code branches.  Daemon tools a
 additive: if =emacsclient= can reach a running daemon, 9 data layer tools are appended
 to the tool set regardless of mode.
 
-** Relationship to the Python Stack
+** Relationship to Original Architecture
 
-| Python layer        | Replaced by                  | How                                      |
-|---------------------+------------------------------+------------------------------------------|
-| =src/server.py= (L5)   | [[file:../src/emcp-stdio.el::defun emcp-stdio-start][emcp-stdio-start]]             | JSON-RPC read loop in batch mode         |
-| =src/introspect.el= (L1)| [[file:../src/emcp-stdio.el::defun emcp-stdio--collect-tools][emcp-stdio--collect-tools]]    | Live =mapatoms= at startup               |
-| =functions-compact.jsonl= (L2) | (eliminated)          | No manifest; tools from live obarray     |
-| =src/escape.py= (L3)   | (eliminated)                 | JSON args, no s-expression escaping      |
-| =src/dispatch.py= (L4) | =funcall= / [[file:../src/emcp-stdio.el::defun emcp-stdio--daemon-eval][emcp-stdio--daemon-eval]] | In-process for local; emacsclient for daemon |
+The original multi-layer architecture (historical -- removed) has been
+collapsed into this single file:
+
+| Original layer              | Now handled by               | How                                      |
+|-----------------------------+------------------------------+------------------------------------------|
+| L5: MCP protocol server    | [[file:../src/emcp-stdio.el::defun emcp-stdio-start][emcp-stdio-start]]             | JSON-RPC read loop in batch mode         |
+| L1: obarray introspection  | [[file:../src/emcp-stdio.el::defun emcp-stdio--collect-tools][emcp-stdio--collect-tools]]    | Live =mapatoms= at startup               |
+| L2: JSONL manifest         | (eliminated)                 | No manifest; tools from live obarray     |
+| L3: argument escaping      | (eliminated)                 | JSON args, no s-expression escaping      |
+| L4: emacsclient dispatch   | =funcall= / [[file:../src/emcp-stdio.el::defun emcp-stdio--daemon-eval][emcp-stdio--daemon-eval]] | In-process for local; emacsclient for daemon |
 
 See [[file:../CLAUDE.md][CLAUDE.md]] Component Architecture for the full layer table.
 
@@ -350,7 +353,7 @@ send  -----> json-serialize --> decode-coding-string --> princ --> stdout
 - Returns :: Result string from the daemon (trimmed, diagnostics filtered)
 - Side effects :: Spawns =emacsclient --eval= subprocess
 - Error :: Signals =error= if =emacsclient= exits with non-zero code
-- Notes :: Filters lines containing ="emacsclient:"= from the output.  This handles TCP socket warnings and other diagnostic noise.  Same pattern as =dispatch.py=.  See [[#gotcha-emacsclient][emacsclient diagnostic filtering gotcha]].
+- Notes :: Filters lines containing ="emacsclient:"= from the output.  This handles TCP socket warnings and other diagnostic noise.  See [[#gotcha-emacsclient][emacsclient diagnostic filtering gotcha]].
 
 ** emcp-stdio--build-daemon-tools
 :PROPERTIES:
@@ -660,7 +663,7 @@ diagnostic lines like =Waiting for Emacs...= to its stdout.  These lines are mix
 into the eval result.
 
 [[file:../src/emcp-stdio.el::defun emcp-stdio--daemon-eval][emcp-stdio--daemon-eval]] filters any line containing ="emacsclient:"= before
-returning the result.  This mirrors the same filtering in =src/dispatch.py=.
+returning the result.
 
 ** Batch mode encoding setup
 :PROPERTIES:
@@ -740,7 +743,7 @@ The following invariants must hold for correct operation:
 :END:
 
 - Project specification :: [[file:../CLAUDE.md][CLAUDE.md]]
-- Conjecture that motivated this file :: [[file:conjectures/c-008-research.md][C-008: Pure Elisp MCP Server Replaces Python Shim]]
+- Conjecture that motivated this file :: [[file:conjectures/c-008-research.md][C-008: Pure Elisp MCP Server]]
 - All conjectures :: [[file:../CONJECTURES.md][CONJECTURES.md]]
 - Project overview :: [[file:../README.org][README.org]]
 - Batch mode reference :: [[file:reference/batch-mode.md][batch-mode.md]]

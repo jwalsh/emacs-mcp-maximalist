@@ -45,7 +45,7 @@ Output goes to current buffer (destination `t` inside `with-temp-buffer`).
 with `(error "daemon-eval failed: %s" ...)`.
 
 **Invariants**:
-- Diagnostic line filtering matches the pattern used in `dispatch.py`:
+- Diagnostic line filtering matches the established pattern:
   lines containing `"emacsclient:"` are stripped.
 - Result is `string-trim`'d -- leading/trailing whitespace removed.
 - The sexp-string is NOT modified or escaped -- caller must provide
@@ -346,7 +346,7 @@ diagnostics that are not part of the eval result.
 
 Pattern: `(string-match-p "emacsclient:" line)`.
 
-This matches the behavior in `dispatch.py`.
+This pattern filters emacsclient diagnostic output from eval results.
 
 ### 3. emcp-data-eval takes raw sexp -- no quoting applied
 

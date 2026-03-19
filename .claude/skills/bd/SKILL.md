@@ -32,13 +32,13 @@ Creates `.beads/` database. Run once per repo.
 ### Quick capture (returns only the ID)
 
 ```bash
-bd q "fix escape.py null byte handling"
+bd q "fix emcp-stdio.el daemon eval error handling"
 ```
 
 ### Create with details
 
 ```bash
-bd create --title "Step 1: escape.py" --type feature --body "acceptance: pytest passes"
+bd create --title "Step 1: emcp-stdio.el" --type feature --body "acceptance: ERT tests pass"
 ```
 
 ### Wire dependencies

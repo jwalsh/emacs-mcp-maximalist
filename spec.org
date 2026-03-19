@@ -1,7 +1,12 @@
-#+title: emacs-mcp-maximalist — Specification
+#+title: emacs-mcp-maximalist — Specification (Historical)
 #+subtitle: Every Text-Consuming Function in Emacs, as an MCP Tool
 #+author: aygp-dr
 #+date: 2026-03-17
+# HISTORICAL: This is the original specification from 2026-03-17.
+# It describes a Python+Elisp architecture that has been superseded
+# by the pure Elisp server (src/emcp-stdio.el). See C-008 in
+# CONJECTURES.md. The current project architecture is documented in
+# CLAUDE.md. Do not tangle code from this file.
 #+property: header-args :mkdirp t
 #+property: header-args:emacs-lisp :lexical t
 #+property: header-args:mermaid :file docs/diagrams/:exports results

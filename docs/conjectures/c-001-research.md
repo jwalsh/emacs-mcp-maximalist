@@ -28,15 +28,15 @@ token overhead at tool-call time proportional to total manifest size
 
 ### Protocol-Level Analysis
 
-Examined the MCP Python SDK (v1.26.0, protocol version 2025-11-25):
+Examined the MCP SDK (v1.26.0, protocol version 2025-11-25):
 
 - `ListToolsRequest` inherits from `PaginatedRequest`, which accepts
   an optional `cursor` parameter.
 - `ListToolsResult` has an optional `nextCursor` field for pagination.
 - **However**, pagination is server-side optional. The server decides
   whether to paginate.
-- This server (`src/server.py`) returns ALL tools in a single
-  `tools/list` response with `nextCursor=None` (no pagination).
+- This server returns ALL tools in a single `tools/list` response
+  with `nextCursor=None` (no pagination).
 
 **Key finding**: The MCP protocol supports pagination for `tools/list`,
 but neither this server nor (as far as can be observed) Claude Code's
