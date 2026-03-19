@@ -304,5 +304,154 @@ Returns the raw string written to stdout."
     (should (equal (alist-get 'type first-item) "text"))
     (should (equal (alist-get 'text first-item) "hello"))))
 
+;;; --- I/O layer tests converted from test_io_layer.sh ---
+
+(ert-deftest test-io/initialize-produces-valid-jsonrpc ()
+  "Initialize handshake produces valid JSON-RPC with jsonrpc, id, result."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      '((jsonrpc . "2.0") (id . 1) (method . "initialize")
+                        (params . ())))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist)))
+    (should (equal (alist-get 'jsonrpc parsed) "2.0"))
+    (should (equal (alist-get 'id parsed) 1))
+    (should (assq 'result parsed))))
+
+(ert-deftest test-io/response-no-error-key ()
+  "Success response contains jsonrpc, id, result and no error key."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      '((jsonrpc . "2.0") (id . 42) (method . "initialize")
+                        (params . ())))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist)))
+    (should (assq 'jsonrpc parsed))
+    (should (assq 'id parsed))
+    (should (assq 'result parsed))
+    (should-not (assq 'error parsed))))
+
+(ert-deftest test-io/non-ascii-round-trip-accented ()
+  "Non-ASCII round-trip: upcase of accented Latin characters."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      `((jsonrpc . "2.0") (id . 2) (method . "tools/call")
+                        (params . ((name . "upcase")
+                                   (arguments . ((args . ["caf\u00e9"])))))))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist))
+         (text (alist-get 'text (aref (alist-get 'content (alist-get 'result parsed)) 0))))
+    (should (string-match-p "CAF" text))))
+
+(ert-deftest test-io/emoji-round-trip ()
+  "Emoji round-trip via concat."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      `((jsonrpc . "2.0") (id . 2) (method . "tools/call")
+                        (params . ((name . "concat")
+                                   (arguments . ((args . ["\U0001f600" "\U0001f680"])))))))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist))
+         (text (alist-get 'text (aref (alist-get 'content (alist-get 'result parsed)) 0))))
+    (should (not (string-empty-p text)))
+    (should (not (equal text "null")))))
+
+(ert-deftest test-io/empty-args-handled ()
+  "Empty args to concat returns result."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      `((jsonrpc . "2.0") (id . 2) (method . "tools/call")
+                        (params . ((name . "concat")
+                                   (arguments . ((args . [])))))))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist)))
+    (should (assq 'result parsed))))
+
+(ert-deftest test-io/unknown-method-returns-32601 ()
+  "Unknown method returns JSON-RPC error with code -32601."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      '((jsonrpc . "2.0") (id . 1) (method . "nonexistent/method")
+                        (params . ())))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist)))
+    (should (assq 'error parsed))
+    (should-not (assq 'result parsed))
+    (should (equal (alist-get 'code (alist-get 'error parsed)) -32601))))
+
+(ert-deftest test-io/notification-no-stdout ()
+  "Notification (no id) produces no output on stdout."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let ((output (with-temp-buffer
+                  (let ((standard-output (current-buffer)))
+                    (emcp-stdio--dispatch
+                     '((jsonrpc . "2.0") (method . "notifications/initialized")))
+                    (buffer-string)))))
+    (should (string-empty-p output))))
+
+(ert-deftest test-io/multiple-requests-each-valid-json ()
+  "Each dispatched request produces valid JSON output."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let ((msgs '(((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))
+                ((jsonrpc . "2.0") (id . 2) (method . "ping")))))
+    (dolist (msg msgs)
+      (let ((output (with-temp-buffer
+                      (let ((standard-output (current-buffer)))
+                        (emcp-stdio--dispatch msg)
+                        (buffer-string)))))
+        (should (not (string-empty-p output)))
+        ;; Must be valid JSON
+        (should (json-parse-string (string-trim output) :object-type 'alist))))))
+
+(ert-deftest test-io/ping-response-empty-result ()
+  "Ping response has valid JSON-RPC with empty result object."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      '((jsonrpc . "2.0") (id . 1) (method . "ping")))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist)))
+    (should (equal (alist-get 'jsonrpc parsed) "2.0"))
+    (should (equal (alist-get 'id parsed) 1))
+    ;; result key should be present
+    (should (string-match-p "\"result\"" output))))
+
+(ert-deftest test-io/tools-list-returns-tools-array ()
+  "tools/list returns result with a tools array."
+  (unless emcp-stdio--tools-cache
+    (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
+  (let* ((output (with-temp-buffer
+                   (let ((standard-output (current-buffer)))
+                     (emcp-stdio--dispatch
+                      '((jsonrpc . "2.0") (id . 2) (method . "tools/list")
+                        (params . ())))
+                     (buffer-string))))
+         (parsed (json-parse-string (string-trim output) :object-type 'alist))
+         (tools (alist-get 'tools (alist-get 'result parsed))))
+    (should (vectorp tools))
+    (should (> (length tools) 0))))
+
 (provide 'test_io_layer)
 ;;; test_io_layer.el ends here

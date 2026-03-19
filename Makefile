@@ -112,10 +112,19 @@ manifest: $(MANIFEST) $(MANIFEST_CORE)
 # --- test -----------------------------------------------------------------
 
 test:
-	emacs --batch -Q -l src/emcp-stdio.el -l tests/test-emcp-stdio.el -f ert-run-tests-batch-and-exit
+	emacs --batch -Q -l src/emcp-stdio.el \
+		-l tests/test-emcp-stdio.el \
+		-l tests/test_io_layer.el \
+		-l tests/test_sexp_construction.el \
+		-l tests/test-integration.el \
+		-f ert-run-tests-batch-and-exit
 
-test-integration:
-	@test -f tests/test_emcp_stdio_integration.sh && bash tests/test_emcp_stdio_integration.sh || echo "no integration test script found"
+test-e2e:
+	emacs --batch -Q -l src/emcp-stdio.el \
+		-l tests/test-e2e.el \
+		-f ert-run-tests-batch-and-exit
+
+test-all: test test-e2e
 
 # --- server ---------------------------------------------------------------
 
@@ -179,7 +188,7 @@ work:              $(SENTINEL)/work
 
 .PHONY: bootstrap generate-claude-md review-prompt wire-backlog \
         setup-memory health-check verify-bootstrap decompose work \
-        clean status graph parallel note test test-integration health \
+        clean status graph parallel note test test-e2e test-all health \
         run run-core run-max lint lint-org \
         manifest sync init-bd init-cprr init-sb init-aq init-tools resume
 
