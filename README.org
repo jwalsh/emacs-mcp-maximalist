@@ -8,6 +8,8 @@
 [[https://github.com/jwalsh/emcp/issues][https://img.shields.io/github/issues/jwalsh/emcp.svg?style=flat-square]]
 [[https://www.gnu.org/software/emacs/][https://img.shields.io/badge/emacs-%E2%89%A528-7F5AB6.svg?style=flat-square&logo=gnuemacs&logoColor=white]]
 
+[[file:docs/creative/banner-readme.png]]
+
 * What
 
 An MCP server that exposes the full Emacs =obarray= --- every text-consuming
