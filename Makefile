@@ -126,6 +126,11 @@ test-e2e:
 
 test-all: test test-e2e
 
+coverage:
+	emacs --batch -Q -l src/emcp-stdio.el \
+		-l tests/test-coverage.el \
+		-f emcp-coverage-run
+
 # --- server ---------------------------------------------------------------
 
 run: run-core
@@ -188,7 +193,7 @@ work:              $(SENTINEL)/work
 
 .PHONY: bootstrap generate-claude-md review-prompt wire-backlog \
         setup-memory health-check verify-bootstrap decompose work \
-        clean status graph parallel note test test-e2e test-all health \
+        clean status graph parallel note test test-e2e test-all coverage health \
         run run-core run-max lint lint-org \
         manifest sync init-bd init-cprr init-sb init-aq init-tools resume
 
