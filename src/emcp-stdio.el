@@ -43,10 +43,14 @@ Set to `always' to expose every fboundp symbol (true maximalist).")
 
 (defun emcp-stdio--send (alist)
   "Serialize ALIST as JSON, write to stdout, newline, flush.
-`json-serialize' returns a unibyte UTF-8 string; decode it so
-`princ' emits correct multibyte output in batch mode."
-  (princ (decode-coding-string (json-serialize alist) 'utf-8))
-  (terpri))
+Uses `send-string-to-terminal' which writes directly to fd 1 in
+batch mode, bypassing internal stdio buffering (C-011 fix).
+Falls back to `princ'+`terpri' when `standard-output' is a buffer
+\(e.g., during ERT tests)."
+  (let ((json (decode-coding-string (json-serialize alist) 'utf-8)))
+    (if (bufferp standard-output)
+        (progn (princ json) (terpri))
+      (send-string-to-terminal (concat json "\n")))))
 
 (defun emcp-stdio--respond (id result)
   "Send a JSON-RPC 2.0 success response for ID."
