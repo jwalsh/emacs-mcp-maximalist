@@ -1,5 +1,30 @@
 ;;; test-e2e.el --- End-to-end subprocess tests for emcp-stdio -*- lexical-binding: t -*-
 
+;;; Contract traceability:
+;;
+;; This file validates invariants from:
+;;   - docs/contracts/integration-tests.md (full subprocess protocol compliance)
+;;   - docs/contracts/dispatch.md (method routing via subprocess)
+;;   - docs/contracts/io-layer.md (JSON framing over real stdio)
+;;
+;; Invariants tested:
+;;   E-1:  Initialize produces valid JSON-RPC (subprocess)
+;;   E-2:  Protocol version = "2024-11-05" (subprocess)
+;;   E-3:  Notification produces no response (subprocess)
+;;   E-4:  tools/list returns tools (subprocess)
+;;   E-5:  tools/call upcase works (subprocess)
+;;   E-6:  tools/call string-trim works (subprocess)
+;;   E-7:  Unknown method returns -32601 (subprocess)
+;;   E-8:  Malformed JSON does not crash server
+;;   E-9:  Empty line does not crash server
+;;   E-10: Sequential requests return correct ids
+;;   E-11: Each response is valid JSON
+;;   E-12: Ping returns response with result (subprocess)
+;;   D-2:  Notifications never produce a response
+;;   D-3:  Response id matches request id
+;;   D-4:  Unknown methods return -32601
+;;   I-1:  Output is valid JSON
+
 ;;; Commentary:
 ;;
 ;; True end-to-end tests that launch emcp-stdio in a subprocess via
@@ -88,7 +113,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
 ;;; ---- E2E Tests ----
 
 (ert-deftest test-e2e/initialize-produces-valid-json ()
-  "E2E: Initialize produces valid JSON-RPC response."
+  "E2E: Initialize produces valid JSON-RPC response. [E-1 I-1]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")))
          (responses (test-e2e--parse-responses stdout))
@@ -99,7 +124,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (alist-get 'result resp))))
 
 (ert-deftest test-e2e/initialize-has-protocol-version ()
-  "E2E: Initialize result has protocolVersion."
+  "E2E: Initialize result has protocolVersion. [E-2 D-7]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")))
          (responses (test-e2e--parse-responses stdout))
@@ -108,7 +133,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (equal (alist-get 'protocolVersion result) "2024-11-05"))))
 
 (ert-deftest test-e2e/ping-returns-empty-result ()
-  "E2E: Ping returns response with result."
+  "E2E: Ping returns response with result. [E-12 D-13]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}")))
          (responses (test-e2e--parse-responses stdout))
@@ -120,7 +145,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (string-match-p "\"result\"" stdout))))
 
 (ert-deftest test-e2e/notification-no-response ()
-  "E2E: Notification followed by ping yields one response."
+  "E2E: Notification followed by ping yields one response. [E-3 D-2]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}"
                     "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"ping\"}")))
@@ -130,7 +155,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (equal (alist-get 'id (car responses)) 99))))
 
 (ert-deftest test-e2e/unknown-method-error ()
-  "E2E: Unknown method returns -32601 error."
+  "E2E: Unknown method returns -32601 error. [E-7 D-4]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"nonexistent/method\",\"params\":{}}")))
          (responses (test-e2e--parse-responses stdout))
@@ -140,7 +165,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (equal (alist-get 'code err) -32601))))
 
 (ert-deftest test-e2e/tools-list-returns-tools ()
-  "E2E: tools/list returns tools array with > 0 entries."
+  "E2E: tools/list returns tools array with > 0 entries. [E-4]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
                     "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
@@ -152,7 +177,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (> (length tools) 0))))
 
 (ert-deftest test-e2e/tools-call-upcase ()
-  "E2E: tools/call upcase('hello') returns 'HELLO'."
+  "E2E: tools/call upcase('hello') returns 'HELLO'. [E-5 D-14]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
                     "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
@@ -163,7 +188,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (equal text "HELLO"))))
 
 (ert-deftest test-e2e/tools-call-string-trim ()
-  "E2E: tools/call string-trim(' hello ') returns 'hello'."
+  "E2E: tools/call string-trim(' hello ') returns 'hello'. [E-6 D-14]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
                     "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
@@ -174,7 +199,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (equal text "hello"))))
 
 (ert-deftest test-e2e/malformed-json-ignored ()
-  "E2E: Malformed JSON line does not crash the server."
+  "E2E: Malformed JSON line does not crash the server. [E-8 D-12]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
                     "this is not json at all{{"
@@ -186,7 +211,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (equal (alist-get 'id ping-resp) 71))))
 
 (ert-deftest test-e2e/empty-line-ignored ()
-  "E2E: Empty line does not crash the server."
+  "E2E: Empty line does not crash the server. [E-9]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
                     ""
@@ -196,7 +221,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should ping-resp)))
 
 (ert-deftest test-e2e/sequential-multiple-pings ()
-  "E2E: 3 sequential pings each get correct id back."
+  "E2E: 3 sequential pings each get correct id back. [E-10 D-3]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"ping\"}"
                     "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"ping\"}"
@@ -208,7 +233,7 @@ Returns the stdout string.  Each line is a JSON-RPC message."
     (should (test-e2e--find-response responses 30))))
 
 (ert-deftest test-e2e/each-response-valid-json ()
-  "E2E: Each output line from server is valid JSON."
+  "E2E: Each output line from server is valid JSON. [E-11 I-1]"
   (let* ((stdout (test-e2e--send-via-shell
                   '("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
                     "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}")))

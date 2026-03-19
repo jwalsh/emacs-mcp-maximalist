@@ -1,11 +1,41 @@
 ;;; test_io_layer.el --- ERT tests for emcp-stdio I/O layer -*- lexical-binding: t -*-
 
+;;; Contract traceability:
+;;
+;; This file validates invariants from:
+;;   - docs/contracts/io-layer.md (JSON output framing, encoding, response structure)
+;;   - docs/contracts/dispatch.md (notification handling, method routing)
+;;
+;; Invariants tested:
+;;   I-1:  send output is valid JSON, one line, UTF-8
+;;   I-2:  send ends with exactly one trailing newline
+;;   I-3:  send has no embedded newlines in JSON payload
+;;   I-4:  Non-ASCII (CJK, emoji, accented) survives send
+;;   I-7:  respond has exactly 3 keys: jsonrpc, id, result
+;;   I-8:  respond jsonrpc = "2.0"
+;;   I-9:  respond preserves integer id
+;;   I-10: respond preserves string id
+;;   I-11: respond includes result field
+;;   I-12: respond never includes error field
+;;   I-13: respond-error has exactly 3 keys: jsonrpc, id, error
+;;   I-14: respond-error jsonrpc = "2.0"
+;;   I-15: respond-error preserves request id
+;;   I-16: respond-error has error.code and error.message
+;;   I-17: respond-error error object has exactly 2 keys
+;;   I-18: respond-error never includes result field
+;;   I-19: Round-trip serialize/parse stability
+;;   I-20: send handles empty hash-table as {}
+;;   I-21: send handles nested structures
+;;   D-2:  Notifications never produce a response
+;;   D-4:  Unknown methods return -32601
+;;   D-13: ping returns empty object {}
+
 ;;; Commentary:
 ;;
 ;; Tests the four I/O functions in emcp-stdio.el:
-;;   emcp-stdio--send        — JSON serialization + stdout framing
-;;   emcp-stdio--respond      — JSON-RPC 2.0 success response
-;;   emcp-stdio--respond-error — JSON-RPC 2.0 error response
+;;   emcp-stdio--send        -- JSON serialization + stdout framing
+;;   emcp-stdio--respond      -- JSON-RPC 2.0 success response
+;;   emcp-stdio--respond-error -- JSON-RPC 2.0 error response
 ;;   (emcp-stdio--read-line tested via bash smoke tests)
 ;;
 ;; Run with:
@@ -53,7 +83,7 @@ Returns the raw string written to stdout."
 ;;; --- Tests for emcp-stdio--send ---
 
 (ert-deftest test-send-produces-valid-json ()
-  "emcp-stdio--send output parses as valid JSON."
+  "emcp-stdio--send output parses as valid JSON. [I-1]"
   (let* ((output (test-io--capture-send '((foo . "bar") (n . 42))))
          ;; Strip trailing newline for parsing
          (json-str (string-trim-right output "\n")))
@@ -64,7 +94,7 @@ Returns the raw string written to stdout."
       (should (equal (alist-get 'n parsed) 42)))))
 
 (ert-deftest test-send-exactly-one-trailing-newline ()
-  "emcp-stdio--send output ends with exactly one newline."
+  "emcp-stdio--send output ends with exactly one newline. [I-2]"
   (let ((output (test-io--capture-send '((a . 1)))))
     ;; Ends with newline
     (should (string-suffix-p "\n" output))
@@ -72,7 +102,7 @@ Returns the raw string written to stdout."
     (should-not (string-suffix-p "\n\n" output))))
 
 (ert-deftest test-send-no-embedded-newlines ()
-  "emcp-stdio--send output has no newlines except the trailing one."
+  "emcp-stdio--send output has no newlines except the trailing one. [I-3]"
   (let* ((output (test-io--capture-send '((text . "line1\nline2"))))
          (content (substring output 0 (1- (length output)))))
     ;; The JSON content itself must not contain literal newlines
@@ -80,14 +110,14 @@ Returns the raw string written to stdout."
     (should-not (string-match-p "\n" content))))
 
 (ert-deftest test-send-handles-ascii ()
-  "emcp-stdio--send handles plain ASCII correctly."
+  "emcp-stdio--send handles plain ASCII correctly. [I-1]"
   (let* ((output (test-io--capture-send '((msg . "hello world"))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should (equal (alist-get 'msg parsed) "hello world"))))
 
 (ert-deftest test-send-handles-non-ascii-latin ()
-  "emcp-stdio--send handles accented Latin characters (UTF-8 multibyte)."
+  "emcp-stdio--send handles accented Latin characters (UTF-8 multibyte). [I-4]"
   (let* ((test-str "NAIVE RESUME CAFE")  ; plain version for comparison
          (accented "NA\u00cfVE R\u00c9SUM\u00c9 CAF\u00c9")
          (output (test-io--capture-send `((text . ,accented))))
@@ -96,7 +126,7 @@ Returns the raw string written to stdout."
     (should (equal (alist-get 'text parsed) accented))))
 
 (ert-deftest test-send-handles-cjk ()
-  "emcp-stdio--send handles CJK characters."
+  "emcp-stdio--send handles CJK characters. [I-4]"
   (let* ((cjk "\u4f60\u597d\u4e16\u754c")  ; "hello world" in Chinese
          (output (test-io--capture-send `((text . ,cjk))))
          (parsed (json-parse-string (string-trim-right output "\n")
@@ -104,7 +134,7 @@ Returns the raw string written to stdout."
     (should (equal (alist-get 'text parsed) cjk))))
 
 (ert-deftest test-send-handles-emoji ()
-  "emcp-stdio--send handles emoji characters."
+  "emcp-stdio--send handles emoji characters. [I-4]"
   (let* ((emoji "\U0001F600\U0001F680\U0001F4A5")  ; grinning face, rocket, explosion
          (output (test-io--capture-send `((text . ,emoji))))
          (parsed (json-parse-string (string-trim-right output "\n")
@@ -112,13 +142,13 @@ Returns the raw string written to stdout."
     (should (equal (alist-get 'text parsed) emoji))))
 
 (ert-deftest test-send-empty-alist ()
-  "emcp-stdio--send handles empty hash-table (produces {})."
+  "emcp-stdio--send handles empty hash-table (produces {}). [I-20]"
   (let* ((output (test-io--capture-send (make-hash-table :test 'equal)))
          (json-str (string-trim-right output "\n")))
     (should (equal json-str "{}"))))
 
 (ert-deftest test-send-nested-structure ()
-  "emcp-stdio--send handles nested alists and vectors."
+  "emcp-stdio--send handles nested alists and vectors. [I-21]"
   (let* ((data '((outer . ((inner . "value")))
                  (arr . [1 2 3])))
          (output (test-io--capture-send data))
@@ -130,28 +160,28 @@ Returns the raw string written to stdout."
 ;;; --- Tests for emcp-stdio--respond ---
 
 (ert-deftest test-respond-jsonrpc-field ()
-  "emcp-stdio--respond includes jsonrpc = \"2.0\"."
+  "emcp-stdio--respond includes jsonrpc = \"2.0\". [I-8]"
   (let* ((output (test-io--capture-respond 1 '((status . "ok"))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should (equal (alist-get 'jsonrpc parsed) "2.0"))))
 
 (ert-deftest test-respond-id-integer ()
-  "emcp-stdio--respond preserves integer id."
+  "emcp-stdio--respond preserves integer id. [I-9]"
   (let* ((output (test-io--capture-respond 42 '((x . 1))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should (equal (alist-get 'id parsed) 42))))
 
 (ert-deftest test-respond-id-string ()
-  "emcp-stdio--respond preserves string id."
+  "emcp-stdio--respond preserves string id. [I-10]"
   (let* ((output (test-io--capture-respond "req-abc" '((x . 1))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should (equal (alist-get 'id parsed) "req-abc"))))
 
 (ert-deftest test-respond-result-present ()
-  "emcp-stdio--respond includes the result field."
+  "emcp-stdio--respond includes the result field. [I-11]"
   (let* ((output (test-io--capture-respond 1 '((tools . []))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
@@ -160,14 +190,14 @@ Returns the raw string written to stdout."
       (should (equal (alist-get 'tools result) [])))))
 
 (ert-deftest test-respond-no-error-field ()
-  "emcp-stdio--respond does NOT include an error field."
+  "emcp-stdio--respond does NOT include an error field. [I-12]"
   (let* ((output (test-io--capture-respond 1 '((ok . t))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should-not (assq 'error parsed))))
 
 (ert-deftest test-respond-exactly-three-keys ()
-  "emcp-stdio--respond produces exactly three top-level keys."
+  "emcp-stdio--respond produces exactly three top-level keys. [I-7]"
   (let* ((output (test-io--capture-respond 1 '((data . "test"))))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
@@ -179,21 +209,21 @@ Returns the raw string written to stdout."
 ;;; --- Tests for emcp-stdio--respond-error ---
 
 (ert-deftest test-respond-error-jsonrpc-field ()
-  "emcp-stdio--respond-error includes jsonrpc = \"2.0\"."
+  "emcp-stdio--respond-error includes jsonrpc = \"2.0\". [I-14]"
   (let* ((output (test-io--capture-respond-error 1 -32601 "Method not found"))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should (equal (alist-get 'jsonrpc parsed) "2.0"))))
 
 (ert-deftest test-respond-error-id-preserved ()
-  "emcp-stdio--respond-error preserves the request id."
+  "emcp-stdio--respond-error preserves the request id. [I-15]"
   (let* ((output (test-io--capture-respond-error 99 -32601 "Not found"))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should (equal (alist-get 'id parsed) 99))))
 
 (ert-deftest test-respond-error-code-and-message ()
-  "emcp-stdio--respond-error includes error.code and error.message."
+  "emcp-stdio--respond-error includes error.code and error.message. [I-16]"
   (let* ((output (test-io--capture-respond-error 1 -32601 "Method not found"))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist))
@@ -203,14 +233,14 @@ Returns the raw string written to stdout."
     (should (equal (alist-get 'message err) "Method not found"))))
 
 (ert-deftest test-respond-error-no-result-field ()
-  "emcp-stdio--respond-error does NOT include a result field."
+  "emcp-stdio--respond-error does NOT include a result field. [I-18]"
   (let* ((output (test-io--capture-respond-error 1 -32700 "Parse error"))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
     (should-not (assq 'result parsed))))
 
 (ert-deftest test-respond-error-exactly-three-keys ()
-  "emcp-stdio--respond-error produces exactly three top-level keys."
+  "emcp-stdio--respond-error produces exactly three top-level keys. [I-13]"
   (let* ((output (test-io--capture-respond-error 1 -32601 "Not found"))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist)))
@@ -220,7 +250,7 @@ Returns the raw string written to stdout."
     (should (assq 'error parsed))))
 
 (ert-deftest test-respond-error-error-has-two-keys ()
-  "The error object has exactly code and message."
+  "The error object has exactly code and message. [I-17]"
   (let* ((output (test-io--capture-respond-error 1 -32601 "Missing"))
          (parsed (json-parse-string (string-trim-right output "\n")
                                     :object-type 'alist))
@@ -232,7 +262,7 @@ Returns the raw string written to stdout."
 ;;; --- Round-trip tests ---
 
 (ert-deftest test-round-trip-serialize-parse-reserialize ()
-  "Serialize, parse, re-serialize produces identical output."
+  "Serialize, parse, re-serialize produces identical output. [I-19]"
   (let* ((data '((jsonrpc . "2.0") (id . 1)
                  (result . ((content . [((type . "text")
                                          (text . "hello"))])))))
@@ -243,7 +273,7 @@ Returns the raw string written to stdout."
     (should (equal output1 output2))))
 
 (ert-deftest test-round-trip-non-ascii ()
-  "Non-ASCII round-trip: serialize -> parse -> re-serialize is stable."
+  "Non-ASCII round-trip: serialize -> parse -> re-serialize is stable. [I-19]"
   (let* ((data `((text . "caf\u00e9 na\u00efve r\u00e9sum\u00e9")))
          (output1 (test-io--capture-send data))
          (parsed (json-parse-string (string-trim-right output1 "\n")
@@ -252,7 +282,7 @@ Returns the raw string written to stdout."
     (should (equal output1 output2))))
 
 (ert-deftest test-round-trip-emoji ()
-  "Emoji round-trip: serialize -> parse -> re-serialize is stable."
+  "Emoji round-trip: serialize -> parse -> re-serialize is stable. [I-19]"
   (let* ((data `((text . "\U0001F600 \U0001F4A1 \U0001F30D")))
          (output1 (test-io--capture-send data))
          (parsed (json-parse-string (string-trim-right output1 "\n")
@@ -261,7 +291,7 @@ Returns the raw string written to stdout."
     (should (equal output1 output2))))
 
 (ert-deftest test-round-trip-cjk ()
-  "CJK round-trip: serialize -> parse -> re-serialize is stable."
+  "CJK round-trip: serialize -> parse -> re-serialize is stable. [I-19]"
   (let* ((data `((text . "\u6d4b\u8bd5\u4e2d\u6587")))
          (output1 (test-io--capture-send data))
          (parsed (json-parse-string (string-trim-right output1 "\n")
@@ -272,7 +302,7 @@ Returns the raw string written to stdout."
 ;;; --- Protocol structure tests ---
 
 (ert-deftest test-initialize-response-structure ()
-  "Simulated initialize response has correct MCP structure."
+  "Simulated initialize response has correct MCP structure. [D-6 I-8]"
   (let* ((output (test-io--capture-respond
                   1
                   `((protocolVersion . ,emcp-stdio--protocol-version)
@@ -290,7 +320,7 @@ Returns the raw string written to stdout."
                    emcp-stdio--server-name))))
 
 (ert-deftest test-tool-call-success-content-structure ()
-  "Tool call success wraps result in content array with type=text."
+  "Tool call success wraps result in content array with type=text. [D-11]"
   (let* ((result-text "hello")
          (output (test-io--capture-respond
                   5
@@ -307,7 +337,7 @@ Returns the raw string written to stdout."
 ;;; --- I/O layer tests converted from test_io_layer.sh ---
 
 (ert-deftest test-io/initialize-produces-valid-jsonrpc ()
-  "Initialize handshake produces valid JSON-RPC with jsonrpc, id, result."
+  "Initialize handshake produces valid JSON-RPC with jsonrpc, id, result. [I-1 I-7 D-6]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -322,7 +352,7 @@ Returns the raw string written to stdout."
     (should (assq 'result parsed))))
 
 (ert-deftest test-io/response-no-error-key ()
-  "Success response contains jsonrpc, id, result and no error key."
+  "Success response contains jsonrpc, id, result and no error key. [I-7 I-12]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -338,7 +368,7 @@ Returns the raw string written to stdout."
     (should-not (assq 'error parsed))))
 
 (ert-deftest test-io/non-ascii-round-trip-accented ()
-  "Non-ASCII round-trip: upcase of accented Latin characters."
+  "Non-ASCII round-trip: upcase of accented Latin characters. [I-4 E-13]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -353,7 +383,7 @@ Returns the raw string written to stdout."
     (should (string-match-p "CAF" text))))
 
 (ert-deftest test-io/emoji-round-trip ()
-  "Emoji round-trip via concat."
+  "Emoji round-trip via concat. [I-4 E-15]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -369,7 +399,7 @@ Returns the raw string written to stdout."
     (should (not (equal text "null")))))
 
 (ert-deftest test-io/empty-args-handled ()
-  "Empty args to concat returns result."
+  "Empty args to concat returns result. [D-14]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -383,7 +413,7 @@ Returns the raw string written to stdout."
     (should (assq 'result parsed))))
 
 (ert-deftest test-io/unknown-method-returns-32601 ()
-  "Unknown method returns JSON-RPC error with code -32601."
+  "Unknown method returns JSON-RPC error with code -32601. [D-4]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -398,7 +428,7 @@ Returns the raw string written to stdout."
     (should (equal (alist-get 'code (alist-get 'error parsed)) -32601))))
 
 (ert-deftest test-io/notification-no-stdout ()
-  "Notification (no id) produces no output on stdout."
+  "Notification (no id) produces no output on stdout. [D-2]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let ((output (with-temp-buffer
@@ -409,7 +439,7 @@ Returns the raw string written to stdout."
     (should (string-empty-p output))))
 
 (ert-deftest test-io/multiple-requests-each-valid-json ()
-  "Each dispatched request produces valid JSON output."
+  "Each dispatched request produces valid JSON output. [I-1 D-1]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let ((msgs '(((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))
@@ -424,7 +454,7 @@ Returns the raw string written to stdout."
         (should (json-parse-string (string-trim output) :object-type 'alist))))))
 
 (ert-deftest test-io/ping-response-empty-result ()
-  "Ping response has valid JSON-RPC with empty result object."
+  "Ping response has valid JSON-RPC with empty result object. [D-13]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer
@@ -439,7 +469,7 @@ Returns the raw string written to stdout."
     (should (string-match-p "\"result\"" output))))
 
 (ert-deftest test-io/tools-list-returns-tools-array ()
-  "tools/list returns result with a tools array."
+  "tools/list returns result with a tools array. [D-10]"
   (unless emcp-stdio--tools-cache
     (setq emcp-stdio--tools-cache (emcp-stdio--collect-tools)))
   (let* ((output (with-temp-buffer

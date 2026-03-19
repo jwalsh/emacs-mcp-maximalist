@@ -1,5 +1,11 @@
 ;;; test-coverage.el --- Function-level coverage tracking for emcp-stdio -*- lexical-binding: t -*-
 
+;;; Contract traceability:
+;;
+;; This file is a coverage instrumentation tool, not a test file.
+;; It does not directly validate contract invariants.
+;; It measures which emcp-stdio-* functions are exercised by other test files.
+
 ;;; Commentary:
 ;;
 ;; Instruments every `emcp-stdio-*' defun with :before advice that records

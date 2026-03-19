@@ -1,5 +1,37 @@
 ;;; test-integration.el --- Integration tests for emcp-stdio -*- lexical-binding: t -*-
 
+;;; Contract traceability:
+;;
+;; This file validates invariants from:
+;;   - docs/contracts/integration-tests.md (protocol compliance, e2e scenarios)
+;;   - docs/contracts/dispatch.md (method routing, error handling)
+;;   - docs/contracts/tool-collection.md (schema structure, known functions)
+;;   - docs/contracts/io-layer.md (unicode round-trip)
+;;   - docs/contracts/daemon-data-layer.md (daemon tool exclusion)
+;;
+;; Invariants tested:
+;;   D-1:  Every request produces exactly one response
+;;   D-2:  Notifications never produce a response
+;;   D-3:  Response id matches request id
+;;   D-4:  Unknown methods return -32601
+;;   D-6:  initialize returns protocolVersion, capabilities, serverInfo
+;;   D-7:  protocolVersion = "2024-11-05"
+;;   D-8:  serverInfo.name = "emacs-mcp-elisp"
+;;   D-9:  serverInfo.version = "0.1.0"
+;;   D-11: tools/call errors are content text, not JSON-RPC errors
+;;   D-13: ping returns empty object {}
+;;   D-14: Local eval via intern-soft + fboundp
+;;   T-7:  No emcp-stdio-* in tools/list
+;;   I-4:  Non-ASCII round-trip (C-004)
+;;   DL-1: Daemon tools excluded when unavailable
+;;   E-13: Unicode accented round-trip
+;;   E-14: Unicode CJK round-trip
+;;   E-15: Unicode emoji round-trip
+;;   E-16: Sequential mixed methods
+;;   E-17: tools/list >= 20
+;;   E-18: tools/list < 5000
+;;   E-19: Known functions in tools/list
+
 ;;; Commentary:
 ;;
 ;; Integration tests converted from test_emcp_stdio_integration.sh.
@@ -40,7 +72,7 @@
 ;;; ---- 1. Protocol Handshake ----
 
 (ert-deftest test-integ/handshake-protocol-version-present ()
-  "H-01: Initialize response has protocolVersion."
+  "H-01: Initialize response has protocolVersion. [D-6]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))))
@@ -48,7 +80,7 @@
     (should (alist-get 'protocolVersion result))))
 
 (ert-deftest test-integ/handshake-capabilities-present ()
-  "H-01: Initialize response has capabilities."
+  "H-01: Initialize response has capabilities. [D-6]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))))
@@ -56,7 +88,7 @@
     (should (alist-get 'capabilities result))))
 
 (ert-deftest test-integ/handshake-serverinfo-present ()
-  "H-01: Initialize response has serverInfo."
+  "H-01: Initialize response has serverInfo. [D-6]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))))
@@ -64,21 +96,21 @@
     (should (alist-get 'serverInfo result))))
 
 (ert-deftest test-integ/handshake-jsonrpc-value ()
-  "H-02: jsonrpc field is '2.0'."
+  "H-02: jsonrpc field is '2.0'. [I-8]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ())))))
     (should (equal (alist-get 'jsonrpc resp) "2.0"))))
 
 (ert-deftest test-integ/handshake-id-matches ()
-  "H-03: Response id matches request id."
+  "H-03: Response id matches request id. [D-3]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ())))))
     (should (equal (alist-get 'id resp) 1))))
 
 (ert-deftest test-integ/handshake-protocol-version-value ()
-  "H-04: protocolVersion = '2024-11-05'."
+  "H-04: protocolVersion = '2024-11-05'. [D-7]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))))
@@ -86,7 +118,7 @@
     (should (equal (alist-get 'protocolVersion result) "2024-11-05"))))
 
 (ert-deftest test-integ/handshake-server-name ()
-  "H-05: serverInfo.name = 'emacs-mcp-elisp'."
+  "H-05: serverInfo.name = 'emacs-mcp-elisp'. [D-8]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))))
@@ -94,7 +126,7 @@
     (should (equal (alist-get 'name info) "emacs-mcp-elisp"))))
 
 (ert-deftest test-integ/handshake-server-version ()
-  "H-06: serverInfo.version = '0.1.0'."
+  "H-06: serverInfo.version = '0.1.0'. [D-9]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 1) (method . "initialize") (params . ()))))
@@ -102,7 +134,7 @@
     (should (equal (alist-get 'version info) "0.1.0"))))
 
 (ert-deftest test-integ/handshake-ping-valid ()
-  "H-07: Ping returns valid JSON-RPC with result."
+  "H-07: Ping returns valid JSON-RPC with result. [D-13]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                '((jsonrpc . "2.0") (id . 2) (method . "ping")))))
@@ -116,14 +148,14 @@
 ;;; ---- 2. Notifications ----
 
 (ert-deftest test-integ/notification-initialized-silent ()
-  "N-01: notifications/initialized produces no response."
+  "N-01: notifications/initialized produces no response. [D-2]"
   (test-integ--ensure-cache)
   (let ((output (test-integ--dispatch-capture
                  '((jsonrpc . "2.0") (method . "notifications/initialized") (params . ())))))
     (should (string-empty-p output))))
 
 (ert-deftest test-integ/notification-arbitrary-silent ()
-  "N-02: Arbitrary notification (no id) is silently ignored."
+  "N-02: Arbitrary notification (no id) is silently ignored. [D-2]"
   (test-integ--ensure-cache)
   (let ((output (test-integ--dispatch-capture
                  '((jsonrpc . "2.0") (method . "some/arbitrary/notification")))))
@@ -132,7 +164,7 @@
 ;;; ---- 3. tools/list ----
 
 (ert-deftest test-integ/tools-list-result-present ()
-  "TL-01: result.tools is present and a vector."
+  "TL-01: result.tools is present and a vector. [D-10]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -140,7 +172,7 @@
     (should (vectorp tools))))
 
 (ert-deftest test-integ/tools-list-count-gte-20 ()
-  "TL-02: Tool count >= 20."
+  "TL-02: Tool count >= 20. [E-17]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -148,7 +180,7 @@
     (should (>= (length tools) 20))))
 
 (ert-deftest test-integ/tools-list-count-lt-5000 ()
-  "TL-03: Tool count < 5000 (sanity)."
+  "TL-03: Tool count < 5000 (sanity). [E-18]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -156,7 +188,7 @@
     (should (< (length tools) 5000))))
 
 (ert-deftest test-integ/tools-list-schema-sample ()
-  "TL-04..08: First 3 tools have valid schema structure."
+  "TL-04..08: First 3 tools have valid schema structure. [T-3 T-4 T-8]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -172,7 +204,7 @@
                        "array"))))))
 
 (ert-deftest test-integ/tools-list-has-string-trim ()
-  "TL-09: 'string-trim' is in tools/list."
+  "TL-09: 'string-trim' is in tools/list. [E-19]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -181,7 +213,7 @@
     (should (member "string-trim" names))))
 
 (ert-deftest test-integ/tools-list-has-concat ()
-  "TL-09: 'concat' is in tools/list."
+  "TL-09: 'concat' is in tools/list. [E-19]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -190,7 +222,7 @@
     (should (member "concat" names))))
 
 (ert-deftest test-integ/tools-list-has-format ()
-  "TL-09: 'format' is in tools/list."
+  "TL-09: 'format' is in tools/list. [E-19]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -199,7 +231,7 @@
     (should (member "format" names))))
 
 (ert-deftest test-integ/tools-list-no-internals ()
-  "TL-10: No emcp-stdio-* internals in tools/list."
+  "TL-10: No emcp-stdio-* internals in tools/list. [T-7]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 '((jsonrpc . "2.0") (id . 10) (method . "tools/list") (params . ()))))
@@ -211,7 +243,7 @@
 ;;; ---- 4. tools/call success ----
 
 (ert-deftest test-integ/tools-call-upcase ()
-  "TC-01: upcase('hello') = 'HELLO'."
+  "TC-01: upcase('hello') = 'HELLO'. [D-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 20) (method . "tools/call")
@@ -221,7 +253,7 @@
     (should (equal text "HELLO"))))
 
 (ert-deftest test-integ/tools-call-downcase ()
-  "TC-02: downcase('HELLO') = 'hello'."
+  "TC-02: downcase('HELLO') = 'hello'. [D-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 21) (method . "tools/call")
@@ -231,7 +263,7 @@
     (should (equal text "hello"))))
 
 (ert-deftest test-integ/tools-call-string-trim ()
-  "TC-03: string-trim(' hello ') = 'hello' (CLAUDE.md acceptance)."
+  "TC-03: string-trim(' hello ') = 'hello' (CLAUDE.md acceptance). [D-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 22) (method . "tools/call")
@@ -241,7 +273,7 @@
     (should (equal text "hello"))))
 
 (ert-deftest test-integ/tools-call-concat ()
-  "TC-04: concat('foo','bar') = 'foobar'."
+  "TC-04: concat('foo','bar') = 'foobar'. [D-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 23) (method . "tools/call")
@@ -251,7 +283,7 @@
     (should (equal text "foobar"))))
 
 (ert-deftest test-integ/tools-call-capitalize ()
-  "TC-05: capitalize('hello world') = 'Hello World'."
+  "TC-05: capitalize('hello world') = 'Hello World'. [D-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 24) (method . "tools/call")
@@ -261,7 +293,7 @@
     (should (equal text "Hello World"))))
 
 (ert-deftest test-integ/tools-call-string-reverse ()
-  "TC-06: string-reverse('abc') = 'cba'."
+  "TC-06: string-reverse('abc') = 'cba'. [D-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 25) (method . "tools/call")
@@ -271,7 +303,7 @@
     (should (equal text "cba"))))
 
 (ert-deftest test-integ/tools-call-content-structure ()
-  "TC-07..09: result.content is array, content[0].type='text', .text present."
+  "TC-07..09: result.content is array, content[0].type='text', .text present. [D-11]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 26) (method . "tools/call")
@@ -286,7 +318,7 @@
 ;;; ---- 5. tools/call errors ----
 
 (ert-deftest test-integ/tools-call-unknown-tool ()
-  "TE-01: Unknown tool returns error text in content."
+  "TE-01: Unknown tool returns error text in content. [D-11]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 30) (method . "tools/call")
@@ -296,7 +328,7 @@
     (should (string-match-p "error" text))))
 
 (ert-deftest test-integ/tools-call-wrong-arity ()
-  "TE-02: Wrong arity returns valid response, not crash."
+  "TE-02: Wrong arity returns valid response, not crash. [D-12]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                `((jsonrpc . "2.0") (id . 31) (method . "tools/call")
@@ -306,7 +338,7 @@
     (should (equal (alist-get 'jsonrpc resp) "2.0"))))
 
 (ert-deftest test-integ/tools-call-error-framing ()
-  "TE-03: Error response has jsonrpc=2.0 and matching id."
+  "TE-03: Error response has jsonrpc=2.0 and matching id. [D-3 D-11]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                `((jsonrpc . "2.0") (id . 30) (method . "tools/call")
@@ -318,14 +350,14 @@
 ;;; ---- 6. Unknown Method ----
 
 (ert-deftest test-integ/unknown-method-code-32601 ()
-  "UM-01: Unknown method returns error code -32601."
+  "UM-01: Unknown method returns error code -32601. [D-4]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                '((jsonrpc . "2.0") (id . 40) (method . "unknown/method") (params . ())))))
     (should (equal (alist-get 'code (alist-get 'error resp)) -32601))))
 
 (ert-deftest test-integ/unknown-method-message ()
-  "UM-02: Error message contains 'Method not found'."
+  "UM-02: Error message contains 'Method not found'. [D-4]"
   (test-integ--ensure-cache)
   (let ((resp (test-integ--dispatch-parse
                '((jsonrpc . "2.0") (id . 41) (method . "foo") (params . ())))))
@@ -335,7 +367,7 @@
 ;;; ---- 7. Unicode / Non-ASCII (C-004) ----
 
 (ert-deftest test-integ/unicode-upcase-accented ()
-  "U-01: upcase preserves accented characters."
+  "U-01: upcase preserves accented characters. [I-4 E-13]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 50) (method . "tools/call")
@@ -345,7 +377,7 @@
     (should (equal text "CAF\u00c9"))))
 
 (ert-deftest test-integ/unicode-cjk-concat ()
-  "U-02: CJK characters survive round-trip."
+  "U-02: CJK characters survive round-trip. [I-4 E-14]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 51) (method . "tools/call")
@@ -356,7 +388,7 @@
     (should (string-match-p "\u4e16\u754c" text))))
 
 (ert-deftest test-integ/unicode-emoji ()
-  "U-03: Emoji survives round-trip."
+  "U-03: Emoji survives round-trip. [I-4 E-15]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 52) (method . "tools/call")
@@ -366,7 +398,7 @@
     (should (string-match-p "\U0001f680" text))))
 
 (ert-deftest test-integ/unicode-latin-extended-upcase ()
-  "U-04: Latin extended upcase."
+  "U-04: Latin extended upcase. [I-4 E-13]"
   (test-integ--ensure-cache)
   (let* ((resp (test-integ--dispatch-parse
                 `((jsonrpc . "2.0") (id . 53) (method . "tools/call")
@@ -378,7 +410,7 @@
 ;;; ---- 8. Sequential Requests ----
 
 (ert-deftest test-integ/sequential-varied-ids ()
-  "SQ-01: Multiple requests with varied ids all respond correctly."
+  "SQ-01: Multiple requests with varied ids all respond correctly. [D-1 D-3]"
   (test-integ--ensure-cache)
   (dolist (id '(42 7 999 1000 2000))
     (let ((resp (test-integ--dispatch-parse
@@ -387,7 +419,7 @@
       (should (equal (alist-get 'id resp) id)))))
 
 (ert-deftest test-integ/sequential-all-valid-json ()
-  "SQ-01: All sequential responses are valid JSON."
+  "SQ-01: All sequential responses are valid JSON. [I-1 D-1]"
   (test-integ--ensure-cache)
   (dolist (id '(42 7 999))
     (let ((output (test-integ--dispatch-capture
@@ -396,7 +428,7 @@
       (should (json-parse-string (string-trim output))))))
 
 (ert-deftest test-integ/sequential-mixed-methods ()
-  "SQ-02: Mixed methods (tools/list, tools/call, ping) all produce responses."
+  "SQ-02: Mixed methods (tools/list, tools/call, ping) all produce responses. [D-1 E-16]"
   (test-integ--ensure-cache)
   (let ((msgs `(((jsonrpc . "2.0") (id . 60) (method . "tools/list") (params . ()))
                 ((jsonrpc . "2.0") (id . 61) (method . "tools/call")
@@ -407,7 +439,7 @@
         (should (not (string-empty-p output)))))))
 
 (ert-deftest test-integ/sequential-non-sequential-ids ()
-  "SQ-03: Non-sequential ids (42, 7, 999) are echoed correctly."
+  "SQ-03: Non-sequential ids (42, 7, 999) are echoed correctly. [D-3]"
   (test-integ--ensure-cache)
   (dolist (id '(42 7 999))
     (let ((resp (test-integ--dispatch-parse
@@ -417,7 +449,7 @@
 ;;; ---- 9. Malformed Input ----
 
 (ert-deftest test-integ/malformed-missing-method ()
-  "MI-03: Missing method field does not crash dispatch."
+  "MI-03: Missing method field does not crash dispatch. [D-12]"
   (test-integ--ensure-cache)
   ;; Missing method but has id -- dispatch should handle gracefully
   (let ((output (test-integ--dispatch-capture
@@ -429,7 +461,7 @@
 ;;; ---- 10. Daemon Tools (conditional) ----
 
 (ert-deftest test-integ/daemon-tools-conditional ()
-  "DT-01/DT-02: Daemon tool count varies based on daemon availability."
+  "DT-01/DT-02: Daemon tool count varies based on daemon availability. [DL-1]"
   (test-integ--ensure-cache)
   ;; With daemon unavailable, daemon tools should not appear
   (let ((emcp-stdio--daemon-available nil))

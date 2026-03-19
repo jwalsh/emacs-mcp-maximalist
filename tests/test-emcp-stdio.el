@@ -692,18 +692,18 @@ Returns nil if no output was produced."
 ;;; ---- ensure-multibyte helper tests ----
 
 (ert-deftest emcp-test-ensure-multibyte/ascii ()
-  "ASCII string passes through unchanged."
+  "ASCII string passes through unchanged. [I-4]"
   (let ((s "hello"))
     (should (equal (emcp-stdio--ensure-multibyte s) s))))
 
 (ert-deftest emcp-test-ensure-multibyte/multibyte-emoji ()
-  "Multibyte emoji string passes through unchanged."
+  "Multibyte emoji string passes through unchanged. [I-4]"
   (let ((s "hello \U0001F600"))
     (should (multibyte-string-p s))
     (should (equal (emcp-stdio--ensure-multibyte s) s))))
 
 (ert-deftest emcp-test-ensure-multibyte/unibyte-utf8 ()
-  "Unibyte UTF-8 bytes are decoded to multibyte."
+  "Unibyte UTF-8 bytes are decoded to multibyte. [I-4]"
   (let ((s (encode-coding-string "hello \U0001F600" 'utf-8)))
     (should-not (multibyte-string-p s))
     (let ((result (emcp-stdio--ensure-multibyte s)))
@@ -711,12 +711,12 @@ Returns nil if no output was produced."
       (should (equal result "hello \U0001F600")))))
 
 (ert-deftest emcp-test-ensure-multibyte/non-string ()
-  "Non-string values pass through unchanged."
+  "Non-string values pass through unchanged. [I-4]"
   (should (equal (emcp-stdio--ensure-multibyte 42) 42))
   (should (equal (emcp-stdio--ensure-multibyte nil) nil)))
 
 (ert-deftest emcp-test-ensure-multibyte/json-serialize-survives ()
-  "json-serialize accepts the output of ensure-multibyte for emoji.
+  "json-serialize accepts the output of ensure-multibyte for emoji. [I-4]
 This is the core regression test: without ensure-multibyte,
 json-serialize rejects unibyte strings with bytes > 127."
   (let* ((raw (encode-coding-string "hello \U0001F60A" 'utf-8))
@@ -729,7 +729,7 @@ json-serialize rejects unibyte strings with bytes > 127."
 ;;; ---- emoji dispatch end-to-end tests ----
 
 (ert-deftest emcp-test-dispatch/emoji-concat-smiley ()
-  "concat with emoji smiley returns correct result."
+  "concat with emoji smiley returns correct result. [I-4 E-15]"
   (test-emcp--ensure-tools-cache)
   (let* ((resp (test-emcp--dispatch-parse
                 `((jsonrpc . "2.0") (id . 60) (method . "tools/call")
@@ -739,7 +739,7 @@ json-serialize rejects unibyte strings with bytes > 127."
     (should (equal text "hello \U0001F60A"))))
 
 (ert-deftest emcp-test-dispatch/emoji-concat-party ()
-  "concat with party popper emoji returns correct result."
+  "concat with party popper emoji returns correct result. [I-4 E-15]"
   (test-emcp--ensure-tools-cache)
   (let* ((resp (test-emcp--dispatch-parse
                 `((jsonrpc . "2.0") (id . 61) (method . "tools/call")
@@ -749,7 +749,7 @@ json-serialize rejects unibyte strings with bytes > 127."
     (should (equal text "\U0001F389 party"))))
 
 (ert-deftest emcp-test-dispatch/upcase-cafe ()
-  "upcase with accented characters returns correct result."
+  "upcase with accented characters returns correct result. [I-4 E-13]"
   (test-emcp--ensure-tools-cache)
   (let* ((resp (test-emcp--dispatch-parse
                 `((jsonrpc . "2.0") (id . 62) (method . "tools/call")

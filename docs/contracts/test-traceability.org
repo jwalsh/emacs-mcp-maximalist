@@ -1,0 +1,166 @@
+#+TITLE: Contract-Test Traceability Matrix
+#+DATE: 2026-03-19
+#+PROPERTY: header-args :eval never
+
+* Invariant Index
+
+Every numbered invariant extracted from the five contract documents,
+mapped to the test(s) that validate it.
+
+Prefix key:
+- =I-N= :: io-layer.md
+- =T-N= :: tool-collection.md
+- =D-N= :: dispatch.md
+- =DL-N= :: daemon-data-layer.md
+- =E-N= :: integration-tests.md
+
+* I: I/O Layer (io-layer.md)
+
+| ID | Invariant | Test file | Test name | Status |
+|------+----------------------------------------------------------+------------------------+-----------------------------------------------+--------|
+| I-1 | send output is valid JSON, one line, UTF-8 | test_io_layer.el | test-send-produces-valid-json | PASS |
+| I-1 | send output is valid JSON, one line, UTF-8 | test-emcp-stdio.el | emcp-test-send-produces-valid-json | PASS |
+| I-2 | send ends with exactly one trailing newline | test_io_layer.el | test-send-exactly-one-trailing-newline | PASS |
+| I-3 | send has no embedded newlines in JSON payload | test_io_layer.el | test-send-no-embedded-newlines | PASS |
+| I-4 | Non-ASCII (CJK, emoji, accented) survives send | test_io_layer.el | test-send-handles-cjk, test-send-handles-emoji, test-send-handles-non-ascii-latin | PASS |
+| I-4 | Non-ASCII (CJK, emoji, accented) survives send | test-emcp-stdio.el | emcp-test-send-handles-unicode | PASS |
+| I-5 | read-line returns nil at EOF, never raises | | | NO TEST |
+| I-6 | read-line returns "" on empty lines, not nil | | | NO TEST |
+| I-7 | respond has exactly 3 keys: jsonrpc, id, result | test_io_layer.el | test-respond-exactly-three-keys | PASS |
+| I-8 | respond jsonrpc = "2.0" | test_io_layer.el | test-respond-jsonrpc-field | PASS |
+| I-9 | respond preserves integer id | test_io_layer.el | test-respond-id-integer | PASS |
+| I-10 | respond preserves string id | test_io_layer.el | test-respond-id-string | PASS |
+| I-11 | respond includes result field | test_io_layer.el | test-respond-result-present | PASS |
+| I-12 | respond never includes error field | test_io_layer.el | test-respond-no-error-field | PASS |
+| I-13 | respond-error has exactly 3 keys: jsonrpc, id, error | test_io_layer.el | test-respond-error-exactly-three-keys | PASS |
+| I-14 | respond-error jsonrpc = "2.0" | test_io_layer.el | test-respond-error-jsonrpc-field | PASS |
+| I-15 | respond-error preserves request id | test_io_layer.el | test-respond-error-id-preserved | PASS |
+| I-16 | respond-error has error.code (int) and error.message (string) | test_io_layer.el | test-respond-error-code-and-message | PASS |
+| I-17 | respond-error error object has exactly 2 keys | test_io_layer.el | test-respond-error-error-has-two-keys | PASS |
+| I-18 | respond-error never includes result field | test_io_layer.el | test-respond-error-no-result-field | PASS |
+| I-19 | Round-trip: serialize -> parse -> re-serialize is stable | test_io_layer.el | test-round-trip-serialize-parse-reserialize, test-round-trip-non-ascii, test-round-trip-emoji, test-round-trip-cjk | PASS |
+| I-20 | send handles empty hash-table as {} | test_io_layer.el | test-send-empty-alist | PASS |
+| I-21 | send handles nested structures | test_io_layer.el | test-send-nested-structure | PASS |
+
+* T: Tool Collection (tool-collection.md)
+
+| ID | Invariant | Test file | Test name | Status |
+|------+-----------------------------------------------------------+------------------------+----------------------------------------------------+--------|
+| T-1 | tool name is string, non-empty, valid Elisp symbol | test-emcp-stdio.el | emcp-test-tool-collection/all-have-name | PASS |
+| T-2 | tool description is string, <= 500 chars | test-emcp-stdio.el | emcp-test-tool-collection/descriptions-under-500, emcp-test-description-length | PASS |
+| T-3 | inputSchema.type = "object" | test-emcp-stdio.el | emcp-test-tool-collection/all-schema-type-object, emcp-test-tool-schema-valid | PASS |
+| T-4 | inputSchema.properties.args.type = "array" | test-emcp-stdio.el | emcp-test-tool-collection/all-args-type-array | PASS |
+| T-5 | inputSchema.properties.args.items.type = "string" | test-emcp-stdio.el | emcp-test-tool-collection/all-items-type-string | PASS |
+| T-6 | inputSchema.required = ["args"] | test-emcp-stdio.el | emcp-test-tool-collection/required-is-args | PASS |
+| T-7 | No tool name starts with "emcp-stdio-" | test-emcp-stdio.el | emcp-test-no-internal-tools-exposed, emcp-test-tool-collection/no-emcp-stdio-prefix | PASS |
+| T-7 | No tool name starts with "emcp-stdio-" | test-integration.el | test-integ/tools-list-no-internals | PASS |
+| T-8 | All tools have identical schema shape | test-emcp-stdio.el | emcp-test-tool-schema-valid, emcp-test-dispatch/tools-list-schema-structure | PASS |
+| T-9 | collect-tools returns a vector, not a list | test-emcp-stdio.el | emcp-test-collect-tools-nonempty | PASS |
+| T-10 | always filter yields strictly more tools than default | test-emcp-stdio.el | emcp-test-tool-collection/safe-always-filter-larger | PASS |
+| T-11 | text-consumer-p matches known text fns, rejects non-text | test-emcp-stdio.el | emcp-test-text-consumer-heuristic | PASS |
+| T-12 | build-tool returns well-formed alist for a known function | test-emcp-stdio.el | emcp-test-build-tool-shape | PASS |
+
+* D: Dispatch (dispatch.md)
+
+| ID | Invariant | Test file | Test name | Status |
+|------+-----------------------------------------------------------+------------------------+----------------------------------------------------+--------|
+| D-1 | Every request (has id) produces exactly one response | test-emcp-stdio.el | emcp-test-dispatch/notification-no-response | PASS |
+| D-1 | Every request (has id) produces exactly one response | test-integration.el | test-integ/sequential-varied-ids | PASS |
+| D-2 | Notifications (no id) never produce a response | test-emcp-stdio.el | emcp-test-dispatch-notification-silent, emcp-test-dispatch/arbitrary-notification-silent | PASS |
+| D-2 | Notifications (no id) never produce a response | test_io_layer.el | test-io/notification-no-stdout | PASS |
+| D-2 | Notifications (no id) never produce a response | test-integration.el | test-integ/notification-initialized-silent, test-integ/notification-arbitrary-silent | PASS |
+| D-2 | Notifications (no id) never produce a response | test-e2e.el | test-e2e/notification-no-response | PASS |
+| D-3 | Response id matches request id | test-emcp-stdio.el | emcp-test-dispatch/sequential-ids | PASS |
+| D-3 | Response id matches request id | test-integration.el | test-integ/handshake-id-matches, test-integ/sequential-non-sequential-ids | PASS |
+| D-4 | Unknown methods return -32601 | test-emcp-stdio.el | emcp-test-dispatch-unknown-method, emcp-test-dispatch/unknown-method-code, emcp-test-dispatch/unknown-method-error-32601, emcp-test-dispatch/unknown-method-message | PASS |
+| D-4 | Unknown methods return -32601 | test_io_layer.el | test-io/unknown-method-returns-32601 | PASS |
+| D-4 | Unknown methods return -32601 | test-integration.el | test-integ/unknown-method-code-32601, test-integ/unknown-method-message | PASS |
+| D-4 | Unknown methods return -32601 | test-e2e.el | test-e2e/unknown-method-error | PASS |
+| D-5 | params defaults to () if absent | | | NO TEST |
+| D-6 | initialize returns protocolVersion, capabilities, serverInfo | test-emcp-stdio.el | emcp-test-dispatch-initialize, emcp-test-dispatch/initialize-full | PASS |
+| D-6 | initialize returns protocolVersion, capabilities, serverInfo | test-integration.el | test-integ/handshake-protocol-version-present, test-integ/handshake-capabilities-present, test-integ/handshake-serverinfo-present | PASS |
+| D-7 | protocolVersion = "2024-11-05" | test-integration.el | test-integ/handshake-protocol-version-value | PASS |
+| D-7 | protocolVersion = "2024-11-05" | test-emcp-stdio.el | emcp-test-dispatch/initialize-full | PASS |
+| D-8 | serverInfo.name = "emacs-mcp-elisp" | test-emcp-stdio.el | emcp-test-dispatch/initialize-server-name | PASS |
+| D-8 | serverInfo.name = "emacs-mcp-elisp" | test-integration.el | test-integ/handshake-server-name | PASS |
+| D-9 | serverInfo.version = "0.1.0" | test-emcp-stdio.el | emcp-test-dispatch/initialize-server-version | PASS |
+| D-9 | serverInfo.version = "0.1.0" | test-integration.el | test-integ/handshake-server-version | PASS |
+| D-10 | tools/list returns pre-built tools-cache vector | test-emcp-stdio.el | emcp-test-tools-list | PASS |
+| D-11 | tools/call errors are content text, not JSON-RPC errors | test-emcp-stdio.el | emcp-test-tools-call-unknown, emcp-test-dispatch/tools-call-nonexistent, emcp-test-dispatch/tools-call-bad-args | PASS |
+| D-11 | tools/call errors are content text, not JSON-RPC errors | test-integration.el | test-integ/tools-call-unknown-tool, test-integ/tools-call-error-framing | PASS |
+| D-12 | condition-case wraps dispatch; server never crashes | test-emcp-stdio.el | emcp-test-dispatch/wrong-arity-no-crash | PASS |
+| D-12 | condition-case wraps dispatch; server never crashes | test-tier1-smoke.el | emcp-test-tier1-all-tools-callable | PASS |
+| D-13 | ping returns empty object {} | test-emcp-stdio.el | emcp-test-dispatch-ping, emcp-test-dispatch/ping-empty-result | PASS |
+| D-13 | ping returns empty object {} | test_io_layer.el | test-io/ping-response-empty-result | PASS |
+| D-13 | ping returns empty object {} | test-integration.el | test-integ/handshake-ping-valid | PASS |
+| D-14 | Local eval: intern-soft + fboundp gate | test-emcp-stdio.el | emcp-test-tools-call-local | PASS |
+| D-15 | Local eval: %S quoting prevents injection | | | NO TEST |
+| D-16 | Daemon tools routed by "emcp-data-" prefix | test-emcp-stdio.el | emcp-test-daemon/no-daemon-tool-call-returns-error | PASS |
+
+* DL: Daemon Data Layer (daemon-data-layer.md)
+
+| ID | Invariant | Test file | Test name | Status |
+|------+-----------------------------------------------------------+------------------------+----------------------------------------------------+--------|
+| DL-1 | Daemon tools only registered when daemon reachable | test-emcp-stdio.el | emcp-test-daemon/no-daemon-tools-excluded | PASS |
+| DL-1 | Daemon tools only registered when daemon reachable | test-integration.el | test-integ/daemon-tools-conditional | PASS |
+| DL-2 | Diagnostic lines (emacsclient:) filtered from output | | | NO TEST |
+| DL-3 | emcp-data-eval is :raw (no quoting) | test_sexp_construction.el | test-daemon-tool-defs/only-eval-is-raw | PASS |
+| DL-4 | :build tools use prin1-to-string for safe quoting | test_sexp_construction.el | test-build-sexp/buffer-read/special-chars, test-build-sexp/buffer-read/backslash, test-build-sexp/buffer-insert/text-with-quotes, test-build-sexp/org-capture/body-with-quotes, test-build-sexp/org-capture/heading-with-backslash | PASS |
+| DL-5 | Every build sexp is parseable by (read ...) | test_sexp_construction.el | test-build-sexp/all-tools-parseable | PASS |
+| DL-6 | Exactly 9 daemon tool definitions | test_sexp_construction.el | test-daemon-tool-defs/count | PASS |
+| DL-7 | Org tools require 'org in generated sexp | test_sexp_construction.el | test-build-sexp/org-headings/basic | PASS |
+| DL-8 | Unknown daemon tool signals error | test_sexp_construction.el | test-build-sexp/unknown-tool, test-daemon-call/unknown-tool-signals-error | PASS |
+| DL-9 | Each daemon tool def has 4 elements (name, arglist, doc, type) | test_sexp_construction.el | test-daemon-tool-defs/all-have-four-elements | PASS |
+| DL-9 | Each daemon tool def has 4 elements (name, arglist, doc, type) | test-emcp-stdio.el | emcp-test-daemon-tool-defs-well-formed | PASS |
+| DL-10 | build-daemon-tools returns list of well-formed MCP tools | test_sexp_construction.el | test-build-daemon-tools/returns-list, test-build-daemon-tools/each-has-name, test-build-daemon-tools/each-has-schema | PASS |
+| DL-10 | build-daemon-tools returns list of well-formed MCP tools | test-emcp-stdio.el | emcp-test-build-daemon-tools-shape | PASS |
+| DL-11 | Tool names from build match daemon-tool-defs | test_sexp_construction.el | test-build-daemon-tools/names-match-defs | PASS |
+| DL-12 | Nil/empty args handled gracefully (no crash) | test_sexp_construction.el | test-build-sexp/buffer-read/nil-arg, test-build-sexp/buffer-insert/missing-second-arg | PASS |
+| DL-13 | CJK and emoji in args safely escaped | test_sexp_construction.el | test-build-sexp/buffer-read/cjk-name, test-build-sexp/buffer-insert/emoji-text, test-build-sexp/org-capture/combining-chars | PASS |
+| DL-14 | No daemon -> "No daemon available" error in content | test-emcp-stdio.el | emcp-test-daemon/no-daemon-tool-call-returns-error | PASS |
+| DL-15 | Server responds to initialize without daemon | test-emcp-stdio.el | emcp-test-daemon/server-responds-without-daemon | PASS |
+| DL-16 | org-set-todo calls save-buffer | test_sexp_construction.el | test-build-sexp/org-set-todo/basic | PASS |
+| DL-17 | org-capture calls save-buffer in both branches | test_sexp_construction.el | test-build-sexp/org-capture/basic | PASS |
+
+* E: Integration / End-to-End (integration-tests.md)
+
+| ID | Invariant | Test file | Test name | Status |
+|------+-----------------------------------------------------------+------------------------+----------------------------------------------------+--------|
+| E-1 | Initialize produces valid JSON-RPC | test-e2e.el | test-e2e/initialize-produces-valid-json | PASS |
+| E-2 | Protocol version = "2024-11-05" (subprocess) | test-e2e.el | test-e2e/initialize-has-protocol-version | PASS |
+| E-3 | Notification produces no response (subprocess) | test-e2e.el | test-e2e/notification-no-response | PASS |
+| E-4 | tools/list returns tools (subprocess) | test-e2e.el | test-e2e/tools-list-returns-tools | PASS |
+| E-5 | tools/call upcase works (subprocess) | test-e2e.el | test-e2e/tools-call-upcase | PASS |
+| E-6 | tools/call string-trim works (subprocess) | test-e2e.el | test-e2e/tools-call-string-trim | PASS |
+| E-7 | Unknown method returns -32601 (subprocess) | test-e2e.el | test-e2e/unknown-method-error | PASS |
+| E-8 | Malformed JSON does not crash server | test-e2e.el | test-e2e/malformed-json-ignored | PASS |
+| E-9 | Empty line does not crash server | test-e2e.el | test-e2e/empty-line-ignored | PASS |
+| E-10 | Sequential requests return correct ids | test-e2e.el | test-e2e/sequential-multiple-pings | PASS |
+| E-11 | Each response is valid JSON | test-e2e.el | test-e2e/each-response-valid-json | PASS |
+| E-12 | Ping returns response with result (subprocess) | test-e2e.el | test-e2e/ping-returns-empty-result | PASS |
+| E-13 | Unicode round-trip (accented) | test-integration.el | test-integ/unicode-upcase-accented, test-integ/unicode-latin-extended-upcase | PASS |
+| E-13 | Unicode round-trip (accented) | test_io_layer.el | test-io/non-ascii-round-trip-accented | PASS |
+| E-14 | Unicode round-trip (CJK) | test-integration.el | test-integ/unicode-cjk-concat | PASS |
+| E-15 | Unicode round-trip (emoji) | test-integration.el | test-integ/unicode-emoji | PASS |
+| E-15 | Unicode round-trip (emoji) | test_io_layer.el | test-io/emoji-round-trip | PASS |
+| E-16 | Sequential mixed methods all produce responses | test-integration.el | test-integ/sequential-mixed-methods | PASS |
+| E-17 | tools/list >= 20 tools | test-integration.el | test-integ/tools-list-count-gte-20 | PASS |
+| E-17 | tools/list >= 20 tools | test-emcp-stdio.el | emcp-test-dispatch/tools-list-count-gte-20 | PASS |
+| E-18 | tools/list < 5000 tools (sanity) | test-integration.el | test-integ/tools-list-count-lt-5000 | PASS |
+| E-18 | tools/list < 5000 tools (sanity) | test-emcp-stdio.el | emcp-test-dispatch/tools-list-count-lt-5000 | PASS |
+| E-19 | Known functions in tools/list (string-trim, concat, format) | test-integration.el | test-integ/tools-list-has-string-trim, test-integ/tools-list-has-concat, test-integ/tools-list-has-format | PASS |
+| E-19 | Known functions in tools/list (string-trim, concat, format) | test-emcp-stdio.el | emcp-test-dispatch/tools-list-known-functions | PASS |
+| E-20 | No tool corrupts subsequent calls (state isolation) | test-tier1-smoke.el | emcp-test-tier1-no-state-corruption | PASS |
+| E-21 | Response framing (jsonrpc=2.0, correct id) on all tools | test-tier1-smoke.el | emcp-test-tier1-response-framing | PASS |
+| E-22 | Predicate tools never crash with string arg | test-tier1-smoke.el | emcp-test-tier1-predicates-return-value | PASS |
+| E-23 | String-* tools handle input without crash | test-tier1-smoke.el | emcp-test-tier1-string-tools-with-input | PASS |
+
+* Untested Invariants (Gap Analysis)
+
+| ID | Invariant | Reason untested |
+|------+------------------------------------------------------------+--------------------------------------|
+| I-5 | read-line returns nil at EOF, never raises | Tested indirectly via E2E lifecycle; no isolated unit test |
+| I-6 | read-line returns "" on empty lines, not nil | Tested indirectly via E-9 (empty line ignored); no unit test for return value |
+| D-5 | params defaults to () if absent from message | Tested indirectly (some dispatch tests omit params); no dedicated assertion |
+| D-15 | Local eval: %S quoting prevents injection | Security property; no dedicated injection test |
+| DL-2 | Diagnostic lines (emacsclient:) filtered from output | Requires running daemon; no mock test exists |

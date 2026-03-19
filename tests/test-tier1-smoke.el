@@ -1,5 +1,18 @@
 ;;; test-tier1-smoke.el --- Tier 1: smoke test every MCP tool -*- lexical-binding: t -*-
 
+;;; Contract traceability:
+;;
+;; This file validates invariants from:
+;;   - docs/contracts/dispatch.md (condition-case crash protection)
+;;   - docs/contracts/integration-tests.md (state isolation, framing)
+;;
+;; Invariants tested:
+;;   D-12: condition-case wraps dispatch; server never crashes
+;;   E-20: No tool corrupts subsequent calls (state isolation)
+;;   E-21: Response framing (jsonrpc=2.0, correct id) on all tools
+;;   E-22: Predicate tools never crash with string arg
+;;   E-23: String-* tools handle input without crash
+
 ;;; Commentary:
 ;;
 ;; Smoke test: call every tool exposed by emcp-stdio with zero args.
@@ -108,7 +121,7 @@ Returns one of: ok, graceful-error, crash, bad-json, silent-fail."
 ;;; ---- Test: All tools callable ----
 
 (ert-deftest emcp-test-tier1-all-tools-callable ()
-  "Every tool in the cache can be called without crashing the server.
+  "Every tool in the cache can be called without crashing the server. [D-12]
 
 Calls each tool with an empty args array.  Most tools will return a
 graceful error (wrong number of arguments).  The test passes if and
@@ -180,7 +193,7 @@ reported separately."
 ;;; ---- Test: No tool corrupts subsequent calls ----
 
 (ert-deftest emcp-test-tier1-no-state-corruption ()
-  "After calling all tools, string-trim still works correctly.
+  "After calling all tools, string-trim still works correctly. [E-20]
 
 This verifies that no tool call corrupts global Emacs state in a way
 that breaks subsequent tool calls.  We call a known-good tool (string-trim)
@@ -216,7 +229,7 @@ before and after the full tool sweep."
 ;;; ---- Test: Response framing invariant ----
 
 (ert-deftest emcp-test-tier1-response-framing ()
-  "Every non-skipped tool returns a response with jsonrpc=2.0 and correct id.
+  "Every non-skipped tool returns a response with jsonrpc=2.0 and correct id. [E-21]
 
 Even error responses must be properly framed JSON-RPC 2.0."
   (unless emcp-stdio--tools-cache
@@ -251,7 +264,7 @@ Even error responses must be properly framed JSON-RPC 2.0."
 ;;; ---- Test: Predicate tools with string arg ----
 
 (ert-deftest emcp-test-tier1-predicates-return-value ()
-  "Predicate tools (ending in -p) return either a value or graceful error.
+  "Predicate tools (ending in -p) return either a value or graceful error. [E-22]
 
 Predicates are the safest tool class -- they should never crash even
 with wrong-type arguments."
@@ -281,7 +294,7 @@ with wrong-type arguments."
 ;;; ---- Test: String tools with string arg ----
 
 (ert-deftest emcp-test-tier1-string-tools-with-input ()
-  "String tools (string-*) handle a single string arg without crashing.
+  "String tools (string-*) handle a single string arg without crashing. [E-23]
 
 Unlike the zero-args test, this provides a valid string argument to
 check that the most common tool category actually processes input."
