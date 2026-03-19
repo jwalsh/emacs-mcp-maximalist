@@ -141,6 +141,26 @@ run-core:
 run-max:
 	emacs --batch -l src/emcp-stdio.el -f emcp-stdio-start
 
+inspect:
+	npx @modelcontextprotocol/inspector emacs --batch -Q \
+		-l $(CURDIR)/src/emcp-stdio.el \
+		-f emcp-stdio-start
+
+# --- daemon management ----------------------------------------------------
+
+daemon-start:
+	@emacs --daemon 2>&1 && echo "daemon started: $$(emacsclient --eval '(emacs-pid)' 2>/dev/null)"
+
+daemon-stop:
+	@emacsclient --eval '(kill-emacs)' 2>/dev/null && echo "daemon stopped" || echo "no daemon running"
+
+daemon-restart: daemon-stop
+	@sleep 1
+	@$(MAKE) daemon-start
+
+daemon-status:
+	@emacsclient --timeout 5 --eval '(format "{\"pid\": %d, \"uptime\": \"%s\", \"buffers\": %d}" (emacs-pid) (emacs-uptime) (length (buffer-list)))' 2>/dev/null || echo '{"pid": null, "status": "not running"}'
+
 # --- lint -----------------------------------------------------------------
 
 lint-org:
@@ -194,7 +214,9 @@ work:              $(SENTINEL)/work
 .PHONY: bootstrap generate-claude-md review-prompt wire-backlog \
         setup-memory health-check verify-bootstrap decompose work \
         clean status graph parallel note test test-e2e test-all coverage health \
-        run run-core run-max lint lint-org \
+        run run-core run-max inspect \
+        daemon-start daemon-stop daemon-restart daemon-status \
+        lint lint-org \
         manifest sync init-bd init-cprr init-sb init-aq init-tools resume
 
 parallel:

@@ -42,16 +42,30 @@ Set to `always' to expose every fboundp symbol (true maximalist).")
       (read-from-minibuffer "")
     (end-of-file nil)))
 
+(defun emcp-stdio--ensure-multibyte (str)
+  "Return STR as a multibyte string.
+If STR is a unibyte string with bytes above 127, interpret them as
+UTF-8.  This prevents `json-serialize' from rejecting the value with
+\"json-value-p\" when eval results contain raw UTF-8 bytes (e.g., from
+functions that return unibyte strings with emoji/CJK data)."
+  (if (and (stringp str) (not (multibyte-string-p str)))
+      (decode-coding-string str 'utf-8)
+    str))
+
 (defun emcp-stdio--send (alist)
   "Serialize ALIST as JSON, write to stdout, newline, flush.
 Uses `send-string-to-terminal' which writes directly to fd 1 in
 batch mode, bypassing internal stdio buffering (C-011 fix).
 Falls back to `princ'+`terpri' when `standard-output' is a buffer
 \(e.g., during ERT tests)."
-  (let ((json (decode-coding-string (json-serialize alist) 'utf-8)))
+  (let ((json-bytes (json-serialize alist)))
+    ;; json-serialize returns a unibyte string of valid UTF-8 bytes.
+    ;; For send-string-to-terminal: send raw bytes directly (already UTF-8).
+    ;; For princ (ERT tests): decode to multibyte so the buffer gets proper text.
     (if (bufferp standard-output)
-        (progn (princ json) (terpri))
-      (send-string-to-terminal (concat json "\n")))))
+        (let ((json-text (decode-coding-string json-bytes 'utf-8)))
+          (princ json-text) (terpri))
+      (send-string-to-terminal (concat json-bytes "\n")))))
 
 (defun emcp-stdio--respond (id result)
   "Send a JSON-RPC 2.0 success response for ID."
@@ -117,10 +131,11 @@ Falls back to `princ'+`terpri' when `standard-output' is a buffer
 
 (defun emcp-stdio--check-daemon ()
   "Return non-nil if a daemon is reachable.
-Uses a 3-second timeout to avoid blocking indefinitely."
+Uses a 10-second timeout — chaos testing showed 3s causes false
+negatives under concurrent load, triggering restart cascades."
   (condition-case nil
       (zerop (call-process "emacsclient" nil nil nil
-                           "--timeout" "3"
+                           "--timeout" "10"
                            "--eval" "(emacs-pid)"))
     (error nil)))
 
@@ -356,6 +371,9 @@ to avoid embedded escaped quotes that confuse the Elisp reader."
                                            (mapconcat (lambda (a) (format "%S" a))
                                                       args " "))))
                      (format "%s" (eval (read sexp-str) t)))))))
+          ;; Ensure result is multibyte so json-serialize won't reject
+          ;; unibyte strings with bytes > 127 (emoji, CJK from eval).
+          (setq result (emcp-stdio--ensure-multibyte result))
           (emcp-stdio--respond
            id `((content . [((type . "text") (text . ,result))]))))
       (error
