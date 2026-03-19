@@ -1,0 +1,998 @@
+#+title: Gap Analysis — Conjectures, Competing Systems, and Missing Hardening
+#+subtitle: L7 review of the C-D/C-E/C-F/C-G conjecture series and sibling specs
+#+author: jwalsh (via Claude Opus 4.6)
+#+date: 2026-03-19
+#+options: toc:3 num:t
+
+* Scope
+
+This document is a critical review of four emcp specs and 34 conjectures
+across four series (C-D, C-E, C-F, C-G), plus the original C-001 through
+C-011.  It does not modify source code or existing specs.  Its purpose is
+to surface:
+
+1. Coverage gaps: failure modes and behaviors not addressed by any conjecture
+2. Assumption gaps: unstated beliefs the specs rely on
+3. Measurement gaps: conjectures that cannot be measured as currently stated
+4. Competing systems: prior art and alternatives for each spec area
+5. Historical context: where this sits in the research landscape
+6. Proposed C-H series conjectures to fill the holes
+
+* 1. Gap Analysis by Conjecture Series
+
+** 1.1 C-D Series (JITIR / Daemon as Retrieval Layer)
+
+*** Coverage gaps
+
+**** Memory pressure under Hot daemon state
+
+The spec defines a five-state capability gradient (Cold through Live) but
+does not conjecture about memory behavior.  A Hot daemon with 500+ org
+files loaded into buffers, org-id-locations populated, and the agenda
+cache warm is holding significant heap.  On a constrained machine
+(minibos with 16GB, shared with other processes), this raises questions:
+
+- What is the RSS of a Hot daemon with a realistic org corpus (500 files,
+  50K headings)?
+- Does org-map-entries over 500 files create transient garbage that
+  triggers GC pauses visible in emacsclient latency (cf. C-003's 24ms
+  worst-case)?
+- Is there a working-set size beyond which the daemon should refuse to
+  load more files (or shed cold buffers)?
+
+No conjecture covers this.
+
+**** =org-element-parse-buffer= performance on large files
+
+=emcp-q/follow-id-link= calls =org-element-parse-buffer= to extract
+all links from a buffer.  This is an O(n) parse of the entire file.
+For a 10K-line org file with dense property drawers and clock entries,
+this can take hundreds of milliseconds -- potentially pushing a single
+=emcp-data-eval= call well past the 50ms threshold confirmed in C-003
+for simple expressions.
+
+The spec acknowledges "one-time cost per session" for index warming
+(C-D003) but not the per-query cost of parse-buffer on large files.
+
+**** =emcp-q/ego-graph= explosion risk
+
+The ego-graph traversal (depth-bounded BFS over org-id links) has no
+conjecture about graph density.  In a heavily cross-linked org-roam
+corpus, depth=2 from a hub node could expand to hundreds or thousands
+of nodes.  The traversal visits each node once (via hash-table), but
+=emcp-q/follow-id-link= calls =org-element-parse-buffer= per node.
+At 100 nodes with 200ms per parse, that is 20 seconds for one tool call.
+
+**** =org-map-entries= concurrency
+
+The spec (C-E005) conjectures about read-only concurrency of two daemons
+on the same directory, but not about concurrent =org-map-entries= calls
+within a single daemon.  If two MCP clients call =emcp-data-eval= with
+different =org-map-entries= expressions simultaneously, Emacs is
+single-threaded -- one will block the other.  But the question is whether
+the blocking causes stale iteration state (e.g., buffer modifications
+from the first call affecting the second's cursor).
+
+Since Emacs is single-threaded, calls are serialized at the eval level.
+But =emacsclient= connections are accepted asynchronously.  If the daemon
+is processing a long =org-map-entries= call and a second emacsclient
+connection sends a request, the second request queues until the first
+completes.  This is a latency concern, not a correctness concern, but
+no conjecture measures queue depth or wait time under concurrent load.
+
+*** Assumption gaps
+
+- =org-map-entries= is assumed to be safe for read-only use without
+  holding any lock.  This is true (org-mode has no internal locking),
+  but the assumption should be stated explicitly.
+- The "eval-as-query-language" framing assumes the agent can compose
+  correct Elisp expressions.  C-D005 tests whether the agent can
+  "reconstruct project context" but not whether it can reliably write
+  correct =org-map-entries= match strings.  The match syntax
+  ("+tag+TODO=\"DONE\"") is non-trivial.
+- C-D002's comparison against sqlite-vec assumes the embedding model
+  (nomic-embed-text) is available locally.  If embedding is remote, the
+  latency comparison is dominated by network, not retrieval quality.
+
+*** Measurement gaps
+
+- C-D005 ("agent can reconstruct project context without a summary
+  document") is not measurable without a definition of "reconstruct."
+  What is the ground truth?  Precision and recall against what baseline?
+  This conjecture needs a rubric.
+- C-D008 ("unsaved buffer content changes agent output in >=10% of
+  capture-heavy sessions") requires counting sessions and comparing
+  agent outputs with and without the unsaved content.  This is an A/B
+  test, not a measurement -- it requires a controlled experiment design
+  that the spec does not provide.
+
+** 1.2 C-E Series (Eval Trust Boundary)
+
+*** Coverage gaps
+
+**** =json-parse-string= safety for adversarial input in the barrier filter
+
+=emcp-barrier/safe-p= does string-match-p against the sexp-string.
+But =emcp-stdio.el= also calls =json-parse-string= on raw stdin input.
+=json-parse-string= (a C function in Emacs 27+) has been audited for
+buffer overflows, but the spec does not consider:
+
+- JSON strings with embedded null bytes (=\u0000=) -- does
+  =json-parse-string= pass them through, and does =eval (read ...)= on
+  the resulting string create symbols with null bytes in their names?
+- Deeply nested JSON (1000+ levels) causing stack overflow in the C
+  parser.
+- JSON strings exceeding available memory.
+
+The barrier filter operates after JSON parsing, so these are pre-barrier
+attack vectors.
+
+**** TRAMP connection pooling and cleanup
+
+=emcp-t2/remote-org-headings= calls =find-file-noselect= with a TRAMP
+path.  TRAMP opens an SSH connection (or reuses a persistent one).  The
+spec does not address:
+
+- Connection pool limits: how many simultaneous TRAMP connections can
+  the daemon hold before running out of file descriptors?
+- Connection cleanup: TRAMP connections have a
+  =tramp-connection-timeout= (default 60s).  If the daemon opens
+  connections to 10 peers and some go offline, those connections hang
+  until timeout.  During this time, emacsclient calls that touch TRAMP
+  paths will block.
+- SSH agent forwarding: the daemon inherits the SSH agent at startup.
+  If the agent is locked or the key expires (e.g., Yubikey removed),
+  all TRAMP operations fail simultaneously with no clear error message
+  in the MCP response.
+
+**** The =shell-command-to-string= vector in =emcp-t2/remote-eval=
+
+=emcp-t2/remote-eval= constructs an SSH command via string concatenation:
+
+#+begin_example
+(format "ssh %s emacsclient --eval '%s'" host sexp-string)
+#+end_example
+
+The single-quote escaping (=replace-regexp-in-string "'" "'\\''"=) is
+the standard POSIX shell escape for single quotes, but it is fragile:
+
+- A sexp-string containing a backslash followed by a single quote could
+  break the escaping.
+- The =host= parameter is not validated -- a hostile hostname like
+  ="; rm -rf /; "= would be a shell injection.
+- =shell-command-to-string= spawns a shell; the command is interpreted
+  by =/bin/sh=.
+
+This is the eval footgun mentioned in the spec, but no conjecture
+specifically tests the shell-injection vector in =remote-eval=.
+
+**** =emcp-barrier/blocked-patterns= regex quality
+
+The blocked patterns include ="\\bprocess\\b"=.  This blocks legitimate
+queries like =(org-map-entries ... "PROCESS")= where "PROCESS" is a tag
+name.  The spec acknowledges false positives are preferred, but no
+conjecture measures the false positive rate on actual org corpora.
+C-E001 claims <5% false positive rate but only for =org-map-entries=
+queries -- the pattern set also blocks "process" in any context,
+including comments and string literals within sexp strings.
+
+*** Assumption gaps
+
+- =emcp-barrier/safe-p= assumes the sexp-string is syntactically valid
+  Elisp.  If it is not (e.g., unbalanced parens), =read= will signal
+  an error, but the barrier is called before =read=.  This means the
+  barrier is checking a string that might not even be parseable.
+- The trust-tier model assumes Tailscale network membership is
+  equivalent to "known hosts."  This is true for personal Tailscale
+  networks but not for shared Tailscale networks (e.g., a company mesh).
+- The Bastille jail recommendation (Tier 3+) assumes FreeBSD.  The
+  macOS equivalent (sandbox-exec/App Sandbox) is different.  No
+  conjecture tests containerized execution on macOS.
+
+*** Measurement gaps
+
+- C-E002 ("TRAMP eval has higher latency than local eval by >10x") is
+  measurable but the spec does not specify whether the SSH connection
+  is pre-warmed.  First-connection vs. persistent-connection latency
+  will differ by 100x or more.  The conjecture should specify the
+  measurement conditions.
+- C-E008 ("adversarial bypass of emcp-barrier/safe-p is possible") is
+  stated as "expected: yes" -- this is not a falsifiable conjecture but
+  a design observation.  Reframe as: "document N bypass vectors" where
+  N is the quantity to measure.
+
+** 1.3 C-F Series (Presence and Discovery)
+
+*** Coverage gaps
+
+**** mDNS in Docker/container environments
+
+The observability spec provides a =docker-compose.yml= for the Grafana
+stack.  If any emcp component runs inside a Docker container (e.g., the
+OTel bridge), mDNS discovery from within the container will not see host
+network services unless the container uses =network_mode: host=.  The
+default bridge network isolates multicast UDP.  No conjecture covers
+this.
+
+**** avahi-browse file descriptor leaks
+
+=emcp-presence/discover= calls =shell-command-to-string= which spawns
+a subprocess.  If called in a tight loop (e.g., an aggressive RA polling
+at 5-second intervals), the daemon accumulates open file descriptors for
+the subprocesses.  =shell-command-to-string= is synchronous and should
+clean up, but error paths (=avahi-browse= hanging on a network with no
+mDNS responder) could leave zombie processes.
+
+**** avahi-publish idempotency (C-F005 specifics)
+
+C-F005 conjectures that avahi-publish with the same service name
+replaces the previous record atomically.  But the implementation calls
+=emcp-presence--kill-publisher= (which sends SIGKILL to the old process)
+before starting a new =avahi-publish=.  Between the kill and the new
+publish, there is a window where the service is unregistered.  This is
+not atomic -- it is a delete-then-create.  Other peers running
+=avahi-browse= during that window will see the service disappear.
+
+**** macOS Bonjour vs Avahi discrepancies
+
+The spec provides both =dns-sd= (macOS) and =avahi-browse= (Linux)
+codepaths, but the TXT record parsing format differs between the two
+tools.  No conjecture verifies that =emcp-presence--parse-avahi-line=
+works with =dns-sd -B= output.  The macOS broadcast function
+(=emcp-presence/broadcast-macos=) is in a comment block, not tangled.
+
+**** mDNS scope on Tailscale
+
+C-F001 claims discovery works on Tailscale mesh, but mDNS (multicast
+DNS, UDP 5353) uses link-local multicast which does not traverse IP
+routing.  Tailscale's virtual network interface does not forward
+multicast by default.  The spec's Q2 section acknowledges this but the
+conjecture still claims it works.  Either the conjecture is about LAN
+only, or it requires Tailscale-specific configuration that is not
+documented.
+
+*** Assumption gaps
+
+- =avahi-publish -s= with port 0 is assumed to be valid.  Some mDNS
+  clients (Apple's mDNSResponder) may filter port-0 services from
+  browse results.  C-F009 tests this but only for avahi-browse, not
+  for cross-platform clients.
+- The 5-minute staleness threshold in =emcp-presence/peers= is
+  hardcoded.  The assumption is that 5 minutes is a good default.  For
+  a coding session where context changes every few minutes, it might be
+  too long.  For a research review session, it might be too short.
+- The =emcp-presence/query-peer= TRAMP fallback calls =eval (read
+  sexp-string)= in a =with-temp-buffer= after =insert-file-contents= of
+  the org-root.  This evaluates the sexp in the local process, not the
+  remote daemon.  This is a different security context than the SSH
+  emacsclient path.  The barrier is applied, but the eval happens locally.
+
+*** Measurement gaps
+
+- C-F007 ("Tier 3 barrier correctly rejects funcall-via-intern") is a
+  correctness test, not a measurement.  It either passes or fails.
+  Reframe as a test case, not a conjecture.
+- C-F010 ("full composition completes in <3 seconds") depends on network
+  latency, daemon state, and corpus size.  The measurement conditions
+  need to be specified.  "On the homelab" is not reproducible for others.
+
+** 1.4 C-G Series (Observability)
+
+*** Coverage gaps
+
+**** OTel bridge as a single point of failure
+
+The =emcp_otel.py= bridge is a Python process that scrapes the daemon.
+If the bridge crashes, all metrics stop.  The observability system has no
+observability of itself.  The Grafana alerts will fire (no data = alerting
+per the =noDataState: Alerting= setting), but the alert says "daemon
+down" when the real problem is "bridge down."
+
+This is the classic meta-monitoring problem.  The spec should either:
+- Have the daemon itself export metrics (e.g., via the =emcp-metrics.el=
+  ring buffer being scraped by Prometheus directly), or
+- Have a second heartbeat mechanism for the bridge process.
+
+**** Emacs's built-in profiler not integrated
+
+Emacs has =profiler-start=, =profiler-stop=, =profiler-report= for CPU
+and memory profiling.  For diagnosing GC pauses (C-003's 24ms outlier)
+or memory pressure (Hot daemon), the built-in profiler is the right
+tool.  No conjecture integrates profiler data into the OTel pipeline.
+
+**** Missing metrics for the eval barrier
+
+The barrier filter (=emcp-barrier/safe-p=) is a security surface but has
+no instrumentation.  The OTel bridge does not export:
+
+- =emcp.barrier.rejections_total= -- how many eval calls were blocked
+- =emcp.barrier.false_positive_total= -- manually annotated misclassifications
+- =emcp.barrier.bypass_attempts= -- calls that look adversarial
+
+Without these, C-E001 (false positive rate) cannot be measured in
+production.
+
+**** Scrape interval and daemon GC interaction
+
+The OTel bridge calls =emacsclient --eval= every 15 seconds.  Each call
+is an eval in the daemon.  If the daemon is in a GC pause, the
+emacsclient call blocks.  If the scrape timeout (5 seconds) expires
+during a GC pause, the bridge reports =daemon_up=0= even though the
+daemon is alive -- it is just paused.  This creates a false-positive
+alert.
+
+*** Assumption gaps
+
+- The spec assumes OTel → Prometheus → Grafana is the only viable stack.
+  For a personal homelab, a simpler Prometheus-only setup (without OTel
+  collector) might be more appropriate.
+- The =emcp-metrics/eval-ring= is a vector that gets rebuilt via
+  =vconcat= + =seq-drop= on every call.  This creates garbage for GC.
+  At high call rates, the metrics infrastructure itself becomes a
+  performance concern.
+- The docker-compose stack assumes the OTel collector, Prometheus, and
+  Grafana are all on the same machine.  For a multi-host homelab, the
+  collector should be on each host, with remote-write to a central
+  Prometheus.
+
+*** Measurement gaps
+
+- C-G001 ("5-gauge + 4-alert set catches all 8 failure modes") is a
+  coverage claim, not a measurement.  It can be validated by fault
+  injection (kill each component, verify alert fires), but the spec
+  does not provide a fault injection protocol.
+- C-G004 ("OTel bridge adds <50ms overhead") -- overhead to what?
+  To the scrape cycle?  To the daemon?  The emacsclient calls in the
+  bridge add eval load to the daemon.  The conjecture should measure
+  daemon CPU% with and without the bridge running.
+
+* 2. Competing Systems
+
+** 2.1 JITIR / Retrieval (emcp-jitir.org)
+
+*** MIT Remembrance Agent (Bradley Rhodes, 1997)
+
+The original "just-in-time information retrieval" system.  A Savant
+agent running inside Emacs that watches the current buffer, extracts
+keywords, and queries a TF-IDF index of personal files.  Results
+appear in a dedicated Emacs window, updated continuously.
+
+- Paper: Rhodes & Starner, "Remembrance Agent: A continuously running
+  automated information retrieval system" (PAAM '96)
+- Thesis: Rhodes, "Just-In-Time Information Retrieval" (MIT PhD, 2000)
+- Implementation: Common Lisp backend, Emacs frontend
+
+How emcp compares: the RA used keyword extraction + TF-IDF (Mode 1
+equivalent).  emcp-jitir adds structural queries (Mode 2), relational
+traversal (Mode 3), and temporal queries (Mode 4).  The RA ran inside
+Emacs; emcp exposes Emacs to an external agent.  Inverted control flow.
+
+*** Haystack (MIT, 1999)
+
+Personal information management system from the same MIT group.  Used
+a semi-structured data model to support queries across email, files,
+web pages.  Relevant because it tried to solve the same "you don't know
+what you know" problem.
+
+- Paper: Adar et al., "Haystack: Per-User Information Environments"
+  (CIKM 1999)
+
+The Haystack approach was to build a unified schema.  emcp avoids schema
+entirely -- eval IS the query language, and the org-mode data model IS
+the schema.  This is philosophically closer to the Semantic Web vision
+but grounded in a single user's org files.
+
+*** org-roam (modern Emacs)
+
+Backlinks-as-retrieval in Emacs.  org-roam maintains an SQLite database
+of org-id links, enabling "backlinks" (what links to this node?) and
+graph visualization.  It is the closest existing Emacs package to
+emcp-jitir's Mode 3.
+
+- https://github.com/org-roam/org-roam
+
+Key difference: org-roam's SQLite database is a derived index that can
+go stale.  emcp-jitir queries the live parse tree.  org-roam answers
+"what links here" from the database; emcp can follow the links and read
+the destination content in one call.
+
+*** Deft (Emacs full-text search)
+
+Lightweight full-text search in a directory of text files.  Incremental
+narrowing as you type.  Mode 1 equivalent only.
+
+- https://jblevins.org/projects/deft/
+
+*** Notmuch (email indexing in Emacs)
+
+Xapian-backed full-text search for email.  The =notmuch-search= and
+=notmuch-show= interface in Emacs is a retrieval UI.  Relevant because
+it demonstrates the "Emacs as query frontend to a structured index"
+pattern -- the complement of emcp's "Emacs as the index itself."
+
+- https://notmuchmail.org/
+
+*** DEVONthink (macOS)
+
+AI-assisted personal information management.  Uses a proprietary
+classification engine to auto-categorize documents and find related
+items.  The "See Also" feature is a commercial Remembrance Agent.
+
+- https://www.devontechnologies.com/apps/devonthink
+
+How emcp compares: DEVONthink is a closed-source, GUI-first application.
+emcp is headless, eval-first, and protocol-exposed.  DEVONthink's
+"See Also" is semantic similarity; emcp's structural queries are
+orthogonal.
+
+*** Obsidian (and Dataview plugin)
+
+Graph-based knowledge management with Markdown files.  The Dataview
+plugin adds a query language over YAML frontmatter and inline fields.
+
+- https://obsidian.md/
+- https://github.com/blacksmithgu/obsidian-dataview
+
+How =emcp-data-eval= compares to Dataview: Dataview is a domain-specific
+query language over Markdown metadata.  =emcp-data-eval= is a
+general-purpose eval over org-mode's full parse tree.  Dataview cannot
+follow links, query clocks, or access unsaved edits.  emcp can do all
+three.  Dataview has a nicer syntax for common queries; emcp requires
+writing Elisp.  A Dataview-style DSL that compiles to org-map-entries
+calls would be a useful emcp extension.
+
+** 2.2 Eval Trust Boundary (emcp-data-eval.org)
+
+*** Jupyter Kernel Gateway
+
+Eval-as-a-service for Python/R/Julia.  The Kernel Gateway exposes a
+REST API over a running Jupyter kernel.  It is the closest architectural
+analogue to emcp-data-eval: a long-running runtime (kernel = daemon)
+that evaluates expressions sent over a protocol boundary.
+
+- https://github.com/jupyter-server/kernel_gateway
+
+The Jupyter security model: kernel Gateway uses token authentication
+and can restrict to "seed mode" (pre-defined API endpoints only, no
+arbitrary eval).  emcp's barrier filter is a looser analogue of seed
+mode.
+
+*** Node.js vm2 / isolated-vm
+
+Sandboxed JavaScript execution within a Node.js process.  =vm2= creates
+a V8 isolate with configurable access to built-ins.  =isolated-vm= goes
+further with cross-isolate communication.
+
+- https://github.com/nicknisi/isolated-vm
+- vm2 (deprecated, replaced by SES - Secure EcmaScript)
+
+Relevant comparison: both vm2 and emcp-barrier face the same fundamental
+problem -- eval is not sandboxable by string analysis.  vm2 was
+deprecated because sandbox escapes were found repeatedly.  The emcp spec
+acknowledges this honestly ("static analysis of eval is not decidable").
+
+*** Deno permissions model
+
+Deno's =--allow-read=, =--allow-write=, =--allow-net= flags are
+capability-based restrictions on a JavaScript runtime.  This is the
+model emcp's trust tiers aspire to but cannot achieve purely in Elisp
+because Emacs has no capability system.
+
+- https://deno.land/manual/basics/permissions
+
+The gap: Deno enforces capabilities at the V8/Rust level.  emcp
+enforces at the string-match level (barrier) or filesystem level
+(Bastille).  There is no in-process capability enforcement in Emacs.
+
+*** The "confused deputy" problem
+
+The emcp barrier is susceptible to confused deputy attacks: a legitimate
+query function (e.g., =org-map-entries=) could be tricked into calling a
+blocked function via =org-element-map= -> custom callback -> shell-command.
+The barrier checks the top-level sexp but not the transitive call graph.
+Capability-based security (Deno model) avoids this; string filtering
+(emcp model) cannot.
+
+*** MCP server eval precedents
+
+- *filesystem MCP server*: no eval, only read/write/search.  The safest
+  possible MCP server.
+- *sqlite MCP server*: SQL eval with prepared statements.  Parameterized
+  queries prevent injection but allow any SELECT.
+- *code interpreter MCP servers*: Docker-sandboxed Python eval.  The
+  container boundary is the security surface, not string filtering.
+
+emcp is unique in using a general-purpose runtime (Emacs Lisp) with
+string-level filtering rather than process-level isolation.  This is
+acknowledged as defense-in-depth, not a security guarantee.
+
+** 2.3 Presence and Discovery (emcp-presence.org)
+
+*** ZeroConf / Bonjour / Avahi ecosystem
+
+The emcp-presence spec correctly identifies mDNS/DNS-SD (RFC 6762 +
+RFC 6763) as the transport.  The ecosystem includes:
+
+- Apple Bonjour (=mDNSResponder=): macOS, iOS, built-in
+- Avahi: Linux/FreeBSD, systemd-integrated
+- Windows mDNS: available since Windows 10
+
+Cross-platform gotcha: Apple's mDNSResponder and Avahi have subtly
+different behavior around TXT record updates, service name conflicts,
+and multicast scope.  C-F005 (atomic replacement) may behave differently
+on macOS vs Linux.
+
+*** Consul (HashiCorp)
+
+Service discovery + configuration + segmentation.  Consul is the
+production-grade alternative to mDNS for service discovery.
+
+- https://www.consul.io/
+
+Comparison: Consul requires a server cluster, uses Raft consensus, and
+has an HTTP API.  Overkill for a personal homelab with 3 nodes.  mDNS
+is zero-infrastructure.  But Consul handles multi-datacenter, health
+checks, and prepared queries -- features that emcp would need to build
+from scratch.
+
+*** etcd
+
+Distributed key-value store from CoreOS/CNCF.  Used by Kubernetes for
+service registration.  Like Consul, requires infrastructure.
+
+*** Tailscale MagicDNS vs multicast
+
+Tailscale provides =*.ts.net= hostnames via its own DNS infrastructure.
+It does NOT forward multicast DNS across its WireGuard tunnels.  This
+means:
+
+- On the same LAN: mDNS works natively (UDP multicast)
+- Across Tailscale (different LANs): mDNS does not work; use MagicDNS
+  (=host.tail.ts.net=) for name resolution and SSH for transport
+
+The spec's C-F001 needs to specify which network scope it measures.
+
+*** Matrix protocol (federated presence)
+
+Matrix (RFC-adjacent, not IETF) provides federated messaging with
+presence.  A homeserver tracks which users are online/offline/away.
+The =m.presence= event type carries status and last-active timestamp.
+
+- https://spec.matrix.org/v1.9/client-server-api/#presence
+
+Relevant because Matrix solves the same "who is online and what are
+they doing" problem that emcp-presence solves with mDNS.  Matrix is
+federated (works across the internet); mDNS is local-network-only.
+For a homelab, mDNS is simpler.  For a distributed team, Matrix
+presence would be more appropriate.
+
+*** XMPP presence (RFC 6121)
+
+The original internet presence protocol.  XMPP =<presence>= stanzas
+carry availability, status text, and priority.  Relevant as prior art
+for the concept of "broadcasting what you are working on."
+
+*** CRDTs for shared state
+
+The emcp-data-eval spec mentions CRDTs as needed for shared org corpus
+mutation but does not explore them.  Two relevant libraries:
+
+- *Automerge* (https://automerge.org/): CRDT library for JSON-like
+  documents.  Rust core with JS/Python bindings.  Could be used as
+  the merge layer for shared org files.
+- *Y.js* (https://yjs.dev/): CRDT framework for real-time collaboration.
+  Used by many web editors.
+
+The gap: neither Automerge nor Y.js has an Emacs integration.  Building
+a CRDT-backed org-mode would be a major project -- the
+=crdt.el= package (https://elpa.gnu.org/packages/crdt.html) exists but
+is designed for real-time collaborative editing of a single buffer, not
+for merging changes across disconnected sessions.
+
+** 2.4 Observability (emcp-observability.org)
+
+*** Prometheus + Grafana (as used)
+
+The spec's chosen stack.  Appropriate for the homelab context.  The
+OTel collector adds indirection but enables future switch to other
+backends.
+
+*** Cast AI approach
+
+Cited from the Grafana & Friends meetup.  Cast AI's principle: right-size
+observability for actual usage patterns.  The spec applies this well
+(5 gauges, 4 alerts).
+
+*** Datadog / New Relic
+
+Enterprise observability platforms.  Overkill for a personal homelab.
+Mentioned for completeness: if emcp were deployed in a team context
+(Tier 5), these would be appropriate.
+
+*** Emacs built-in profiler
+
+=profiler-start=, =profiler-report= for CPU and memory.  Not integrated
+into the OTel pipeline.  This is a gap: the profiler could be triggered
+by the OTel bridge when latency exceeds a threshold, creating a
+"continuous profiling" capability for the daemon.
+
+*** MCP SDK metrics
+
+The Python =mcp= SDK exposes no metrics by default.  The Elisp
+=emcp-stdio.el= implementation has basic telemetry counters
+(=emcp-stdio--request-count=, etc.) but does not export them via a
+standard protocol.  The =emcp-metrics.el= snapshot function bridges this
+gap for daemon-mode metrics but not for the batch-mode server process.
+
+* 3. Historical Context
+
+** 3.1 The MIT Remembrance Agent
+
+Bradley Rhodes conceived the Remembrance Agent in 1996 as part of the
+MIT Wearable Computing group.  The key insight: humans forget what they
+have seen and written.  A software agent that continuously monitors the
+user's context (the current Emacs buffer) and retrieves related
+previously-seen documents can augment human memory.
+
+The original implementation:
+- Emacs frontend: a minor mode that watches buffer changes and displays
+  retrieval results in a dedicated window
+- Backend: a persistent Savant agent indexing personal files using TF-IDF
+  word frequency analysis
+- Retrieval: every 2-5 seconds, extract keywords from the visible buffer
+  region, query the index, display ranked results
+
+emcp-jitir is a modern reinterpretation with three extensions:
+1. *Structural queries*: the RA used keyword extraction only.  emcp uses
+   org-mode's parse tree for heading/tag/property queries.
+2. *Relational traversal*: the RA had no concept of links between
+   documents.  emcp follows org-id links.
+3. *Temporal queries*: the RA indexed file content.  emcp queries clock
+   entries and state transitions.
+
+The RA ran inside Emacs.  emcp exposes Emacs to an external agent.
+This inversion means the agent (Claude Code) can compose multi-step
+retrieval strategies that the original RA could not, because the RA's
+retrieval was a fixed pipeline (extract keywords -> query index ->
+rank results).  emcp's retrieval is programmable via eval.
+
+** 3.2 JITIR in Information Science
+
+"Just-In-Time Information Retrieval" as a term appears in:
+
+- Rhodes (2000), PhD thesis, MIT
+- Budzik & Hammond (2000), "User Interactions with Everyday
+  Applications as Context for Just-in-Time Information Access" (IUI '00)
+- The broader "proactive information retrieval" literature
+
+The core idea: retrieval triggered by context, not by explicit query.
+The Remembrance Agent is the canonical example.  More recent work:
+Google Now/Discover, Apple Intelligence suggestions, and LLM-powered
+"tools" that surface information mid-conversation.
+
+emcp sits in this tradition: the agent works on a task, notices it needs
+context, and queries the daemon.  The difference from classical JITIR is
+that the retrieval is agent-initiated, not system-initiated.  The agent
+decides when to retrieve; classical JITIR systems decided for the user.
+
+** 3.3 MCP servers in Elisp
+
+A search of GitHub (as of 2026-03) for "MCP server" + "Emacs" or
+"Elisp" yields:
+
+- *emacs-mcp-maximalist* (this project): the first known MCP server
+  implemented entirely in Emacs Lisp, running in batch mode.
+- *mcp.el* / various: client-side MCP integration for Emacs (calling
+  MCP servers from Emacs), not servers implemented in Elisp.
+- No other projects implement the MCP JSON-RPC protocol in Elisp.
+
+The C-008 finding (pure Elisp MCP server replacing the Python shim)
+appears to be a first.  The architectural insight -- that Emacs's batch
+mode provides a complete stdio-based server runtime without any external
+dependencies -- is novel in the MCP ecosystem.
+
+** 3.4 mDNS for editor/IDE discovery
+
+No known prior art for using mDNS service discovery specifically for
+editor or IDE instances.  Related uses of mDNS:
+
+- *AirPlay*: Apple uses =_airplay._tcp= for media device discovery
+- *Google Cast*: =_googlecast._tcp= for Chromecast discovery
+- *Print services*: =_ipp._tcp= for network printers
+- *Home Assistant*: =_esphomelib._tcp= for IoT device discovery
+
+The =_emcp._tcp= service type is novel.  The pattern of embedding
+application-layer presence state (task, worktree, agent) in mDNS TXT
+records is used by some IoT protocols but not by any known
+editor/development tool.
+
+** 3.5 Editor as Database
+
+The "editor as database" concept -- treating a running editor as a
+queryable data layer rather than just an interactive tool -- has limited
+prior art:
+
+- *Emacs server* (=emacs --daemon= + =emacsclient=): the foundational
+  capability.  Emacs has supported this since version 23 (2009).
+- *Vim's =--remote-expr=*: Vim can evaluate VimScript expressions via
+  =--remote-expr=, analogous to =emacsclient --eval=.  But Vim's data
+  model (buffers + registers) is much thinner than Emacs's (buffers +
+  org-mode + packages).
+- *Language Server Protocol* (LSP): LSP treats the editor as a client
+  of a language server, not as a database.  The editor sends document
+  contents to the server, which returns analysis.  emcp inverts this:
+  the agent sends queries to the editor.
+- *Smalltalk image*: the closest conceptual analogue.  A Smalltalk
+  image is a persistent, queryable, mutable runtime -- exactly what an
+  Emacs daemon is.  Pharo Smalltalk exposes its image via
+  =Zinc HTTP= for remote inspection, analogous to emcp exposing Emacs
+  via MCP.
+
+* 4. Proposed C-H Series (Hardening Conjectures)
+
+These conjectures address gaps found in the analysis above.  They are
+grouped as C-H ("hardening" or "holes") to distinguish them from the
+domain-specific C-D/C-E/C-F/C-G series.
+
+| ID | Claim | Spec area | Gap addressed |
+|-------+-------+-----------+---------------|
+| C-H001 | Hot daemon RSS with 500 org files < 500MB | JITIR | Memory pressure (1.1) |
+| C-H002 | =org-element-parse-buffer= on a 10K-line org file completes in <500ms in the daemon | JITIR | Parse performance (1.1) |
+| C-H003 | =emcp-q/ego-graph= with depth=2 on a hub node (>50 outgoing links) completes in <10s | JITIR | Graph explosion (1.1) |
+| C-H004 | Concurrent =emacsclient= connections queue without corruption: 5 simultaneous callers produce correct interleaved results | JITIR/Eval | Concurrency (1.1) |
+| C-H005 | =json-parse-string= on a 10MB JSON payload does not OOM the batch-mode server | Eval | Pre-barrier attack (1.2) |
+| C-H006 | TRAMP connection pool does not exceed 20 open file descriptors under normal emcp usage | Eval | Connection leaks (1.2) |
+| C-H007 | =emcp-t2/remote-eval= is vulnerable to shell injection via hostile hostname (expected: yes -- document and fix) | Eval | Shell injection (1.2) |
+| C-H008 | =emcp-barrier/blocked-patterns= false-positive rate on a corpus of 100 real org-map-entries queries is <10% | Eval | Barrier quality (1.2) |
+| C-H009 | mDNS service de-registration window during =emcp-presence--kill-publisher= + =avahi-publish= is <1 second | Presence | Atomic update (1.3) |
+| C-H010 | =avahi-browse= from inside a Docker container with default bridge networking returns 0 peers (expected: yes -- document workaround) | Presence/Observability | Container mDNS (1.3) |
+| C-H011 | macOS =dns-sd= and Linux =avahi-browse= return identical peer metadata for the same =_emcp._tcp= service | Presence | Cross-platform (1.3) |
+| C-H012 | The OTel bridge crash is detectable by Grafana within 2 minutes via =noDataState: Alerting= | Observability | Meta-monitoring (1.4) |
+| C-H013 | =emcp-metrics/eval-ring= =vconcat= + =seq-drop= pattern does not measurably increase GC pressure at 100 calls/minute | Observability | Metrics overhead (1.4) |
+| C-H014 | The batch-mode MCP server process (=emcp-stdio.el=) can serve 1000 sequential =tools/call= requests without memory growth >50MB | Core | Long-running stability |
+| C-H015 | An agent (Claude Code) given =emcp-data-eval= and the =emcp-q/*= library can write correct =org-map-entries= match strings for 8/10 natural-language queries without guidance | JITIR | Agent composability (1.1) |
+
+** C-H001: Hot Daemon Memory
+
+*Claim*: A Hot Emacs daemon (org-id-locations populated, agenda files
+cached) with 500 org files totaling ~50K headings uses less than 500MB
+RSS.
+
+*Measurement*: Start daemon, load 500 org files via =find-file-noselect=,
+run =org-id-update-id-locations=, measure RSS via =(emacs-pid)= and
+=/proc/$PID/status= (VmRSS) or =ps -o rss=.
+
+*Why it matters*: The JITIR spec assumes the Hot daemon state is
+sustainable.  If RSS exceeds available memory, the OS will swap, and
+all emacsclient calls will be latency-dominated by I/O.
+
+** C-H002: org-element-parse-buffer Performance
+
+*Claim*: =org-element-parse-buffer= on a 10,000-line org file with
+property drawers and clock entries completes in less than 500ms in a
+daemon that has already loaded the file.
+
+*Measurement*: =(benchmark-run 10 (org-element-parse-buffer))= in
+the daemon on a representative large file.  Report mean and P95.
+
+*Why it matters*: =emcp-q/follow-id-link= calls this per node during
+graph traversal.  If it takes 500ms, depth-2 traversal of 20 nodes
+takes 10 seconds.
+
+** C-H003: Ego-Graph Explosion
+
+*Claim*: =emcp-q/ego-graph= with depth=2 starting from a node with
+>50 outgoing org-id links completes in less than 10 seconds.
+
+*Measurement*: Find a hub node in the org-roam corpus, time the
+traversal, report node count, parse-buffer calls, and wall clock.
+
+*Why it matters*: Unbounded graph traversal is the most expensive
+operation in the JITIR query library.  If it routinely exceeds 10s,
+the MCP client may time out.
+
+** C-H004: Concurrent emacsclient Correctness
+
+*Claim*: Five simultaneous =emacsclient --eval= connections to the same
+daemon all return correct results with no interleaving.
+
+*Measurement*: Launch 5 parallel =emacsclient --eval "(list N (+ 1 2))"=
+(each with a different N) and verify each returns the correct value.
+Repeat 100 times.  Report any mismatches.
+
+*Why it matters*: The daemon is single-threaded but =emacsclient= uses
+TCP connections that are accepted asynchronously.  The assumption of
+correct serialization needs to be verified, especially under the load
+that multi-agent scenarios create.
+
+** C-H005: JSON Parse Memory Safety
+
+*Claim*: Sending a 10MB JSON-RPC request to the =emcp-stdio.el=
+batch-mode server does not cause an out-of-memory crash.
+
+*Measurement*: Construct a valid JSON-RPC =tools/call= request with a
+10MB string in the =args= array.  Send it to the server.  Observe
+whether it returns an error or crashes.
+
+*Why it matters*: The server has no request size limit.  A single large
+request could exhaust the batch process's memory.
+
+** C-H006: TRAMP File Descriptor Budget
+
+*Claim*: Under normal emcp usage (eval calls that touch TRAMP paths to
+3 remote hosts), the daemon holds fewer than 20 open file descriptors
+for TRAMP connections.
+
+*Measurement*: After a session with TRAMP calls to 3 hosts, count open
+file descriptors via =lsof -p $(emacs-pid) | wc -l= or
+=(length (process-list))= in the daemon.
+
+*Why it matters*: File descriptor exhaustion silently breaks new
+connections.  The failure mode is opaque -- eval calls hang with no
+error message.
+
+** C-H007: Shell Injection in remote-eval
+
+*Claim*: =emcp-t2/remote-eval= is vulnerable to shell injection via a
+crafted hostname parameter.
+
+*Measurement*: Call =emcp-t2/remote-eval= with hostname
+="; echo pwned; "= and observe whether the injected command executes.
+Document the vector and fix it.
+
+*Why it matters*: This is a concrete security bug, not a theoretical
+concern.  The fix is to use =call-process= instead of
+=shell-command-to-string=.
+
+** C-H008: Barrier False-Positive Rate on Real Queries
+
+*Claim*: The =emcp-barrier/blocked-patterns= produce fewer than 10%
+false positives when tested against 100 real =org-map-entries= queries
+extracted from actual emcp usage logs.
+
+*Measurement*: Collect 100 real eval queries (or construct realistic
+ones from the query library), run each through =emcp-barrier/safe-p=
+at Tier 3, and count rejections.  Manually classify each rejection as
+true positive or false positive.
+
+*Why it matters*: C-E001 claims <5% but the pattern set includes
+="\\bprocess\\b"= which will match org tags containing "process".
+
+** C-H009: mDNS De-registration Window
+
+*Claim*: The window between =emcp-presence--kill-publisher= and the new
+=avahi-publish= completing registration is less than 1 second.
+
+*Measurement*: Run =avahi-browse= in continuous mode (=-k=), trigger a
+broadcast update, and measure the time the service is absent from
+browse results.
+
+*Why it matters*: If the window is large (>5s), peers will see the
+service disappear and reappear, triggering false "no peers" alerts.
+
+** C-H010: Docker mDNS Isolation
+
+*Claim*: =avahi-browse= from inside a Docker container with default
+bridge networking returns 0 peers, even when the host has mDNS services
+registered.
+
+*Measurement*: Run =docker run --rm alpine avahi-browse -t _emcp._tcp=
+(with avahi-utils installed) and verify it returns nothing.  Then
+repeat with =--network host= and verify it sees host services.
+
+*Why it matters*: The OTel bridge runs in Docker.  If it also needs to
+discover mDNS peers, it must use host networking or a different
+discovery mechanism.
+
+** C-H011: Cross-Platform mDNS Parity
+
+*Claim*: A service registered via =dns-sd= on macOS and discovered via
+=avahi-browse= on Linux (or vice versa) produces identical metadata in
+=emcp-presence--parse-avahi-line=.
+
+*Measurement*: Register =_emcp._tcp= on macOS via =dns-sd -R=.  Discover
+from Linux via =avahi-browse -t -r -p=.  Compare the parsed plist fields
+against the macOS-registered values.
+
+*Why it matters*: The homelab has macOS (minibos) and FreeBSD (nexus).
+Cross-platform discovery is a requirement, not a nice-to-have.
+
+** C-H012: OTel Bridge Crash Detection
+
+*Claim*: If the =emcp_otel.py= bridge process crashes, Grafana fires
+the =emcp-daemon-down= alert within 2 minutes due to =noDataState:
+Alerting=.
+
+*Measurement*: Start the full stack, verify metrics flowing, kill the
+bridge process, measure time to alert.
+
+*Why it matters*: The alert will say "daemon down" when the daemon is
+fine.  This is a false positive, but at least it is detectable.  The
+open question is whether to add a separate =emcp-bridge-down= alert.
+
+** C-H013: Metrics Ring Buffer GC Pressure
+
+*Claim*: The =emcp-metrics/eval-ring= =vconcat= + =seq-drop= pattern
+does not increase GC pause time by more than 1ms at 100 eval calls per
+minute.
+
+*Measurement*: Run 100 =emcp-data-eval= calls in one minute.  Compare
+=(garbage-collect)= timing before and after.  Report delta.
+
+*Why it matters*: If the metrics infrastructure itself causes GC pauses,
+it defeats the purpose of monitoring latency.
+
+** C-H014: Batch Server Long-Running Stability
+
+*Claim*: The =emcp-stdio.el= batch-mode server can process 1000
+sequential =tools/call= requests (simple string functions) without RSS
+growth exceeding 50MB.
+
+*Measurement*: Send 1000 =tools/call= requests for =(string-trim " x ")=.
+Record RSS before first call and after last call.
+
+*Why it matters*: The batch server is a long-running process (it runs
+for the duration of the MCP session).  If it leaks memory per call,
+sessions that make many calls will degrade.
+
+** C-H015: Agent Query Composability
+
+*Claim*: Given the =emcp-q/*= function library and =emcp-data-eval=,
+Claude Code can write correct =org-map-entries= match strings for at
+least 8 out of 10 natural-language queries (e.g., "find all TODO items
+tagged 'auth' in the last month").
+
+*Measurement*: Present 10 natural-language queries to the agent with
+access to the query library documentation.  Have the agent generate
+=org-map-entries= match strings.  Test each against a known corpus and
+score precision/recall.
+
+*Why it matters*: C-D005 assumes the agent can compose queries, but the
+org-map-entries match syntax is a mini-language.  If the agent cannot
+use it correctly, the eval-as-query-language advantage is theoretical.
+
+* 5. Summary of Findings
+
+** By severity
+
+| Severity | Finding | Location |
+|----------+---------+----------|
+| Critical | Shell injection in =emcp-t2/remote-eval= via hostname | C-H007 |
+| High | No request size limit in =emcp-stdio.el= JSON parser | C-H005 |
+| High | =org-element-parse-buffer= can dominate ego-graph latency | C-H002/C-H003 |
+| Medium | mDNS does not work across Tailscale (C-F001 scope unclear) | C-F001 |
+| Medium | OTel bridge crash indistinguishable from daemon crash | C-H012 |
+| Medium | Docker mDNS isolation breaks containerized monitoring | C-H010 |
+| Low | Metrics ring buffer creates GC garbage | C-H013 |
+| Low | avahi-publish de-registration window | C-H009 |
+
+** By spec area (gap count)
+
+| Spec | Coverage gaps | Assumption gaps | Measurement gaps | Total |
+|------+--------------+----------------+-----------------+-------|
+| JITIR (C-D) | 4 | 3 | 2 | 9 |
+| Eval (C-E) | 4 | 3 | 2 | 9 |
+| Presence (C-F) | 4 | 3 | 2 | 9 |
+| Observability (C-G) | 4 | 3 | 2 | 9 |
+| *Total* | *16* | *12* | *8* | *36* |
+
+** Key architectural insight
+
+The most significant gap is not in any single spec but in the
+interaction between them.  The full composition
+(broadcast -> discover -> JITIR -> query -> merge, per C-F010)
+has at least 6 components in the critical path, each with its own
+failure mode.  The observability spec instruments individual components
+but not the composition.  A missing conjecture is:
+
+#+begin_quote
+C-H016 (not numbered above, deferred): The end-to-end composition
+has failure modes that are not the union of component failure modes.
+Emergent failures include: TRAMP connection during mDNS browse timeout
+cascading to eval timeout, or GC pause in daemon during OTel scrape
+causing false daemon-down alert causing agent to skip JITIR retrieval.
+#+end_quote
+
+This is the classic distributed systems concern: component reliability
+does not compose.  The observability spec is aware of this (the "silent
+failure" framing) but does not instrument the composition itself.
